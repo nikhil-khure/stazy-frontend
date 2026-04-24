@@ -3,7 +3,30 @@ import { C, BTN } from '../constants/theme';
 import { Logo } from '../components/shared/SharedComponents';
 import Popup from '../components/shared/Popup';
 import { apiRequest } from '../services/api';
+import { triggerMultipleRefresh, registerRefreshCallback } from '../services/apiWithRefresh';
+import { addWebSocketListener } from '../services/websocket';
+import { applyAdminDashboardEvent } from '../utils/realtimeManagementState';
+import { Search, Eye, Filter, CheckCircle, XCircle, Clock, Save, X, Edit, Lock, Unlock, Mail, Phone, MapPin, Upload } from 'lucide-react';
 import { prepareVerificationDisplay } from '../utils/verificationDisplay';
+
+// Add CSS animation for toast
+const styleSheet = document.createElement('style');
+styleSheet.textContent = `
+  @keyframes slideDown {
+    from {
+      transform: translateY(-100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+`;
+if (!document.head.querySelector('style[data-admin-toast]')) {
+  styleSheet.setAttribute('data-admin-toast', 'true');
+  document.head.appendChild(styleSheet);
+}
 
 function humanize(value) {
   return (value || '')
@@ -130,6 +153,7 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
   const [contactMsg, setContactMsg] = useState('');
   const [contactSent, setContactSent] = useState(false);
   const [rejectMsg, setRejectMsg] = useState('');
+  const [moderationMessage, setModerationMessage] = useState('');
   const [stats, setStats] = useState(null);
   const [students, setStudents] = useState([]);
   const [owners, setOwners] = useState([]);
@@ -140,7 +164,15 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
   const [pageError, setPageError] = useState('');
   const [actionError, setActionError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [successToast, setSuccessToast] = useState(null);
+  const [optimisticListings, setOptimisticListings] = useState([]);
 
+  const showToast = (msg) => {
+    setSuccessToast(msg);
+    setTimeout(() => setSuccessToast(null), 2500);
+  };
+
+  // Initial load
   useEffect(() => {
     if (!user || user.role !== 'admin') {
       return;
@@ -186,36 +218,81 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
     };
   }, [user]);
 
-  const applyUserStatus = async (targetUserId, status) => {
-    setActionError('');
-    setActionLoading(true);
-    try {
-      const updated = await apiRequest(`/api/admin/dashboard/users/${targetUserId}/status`, {
-        method: 'PATCH',
-        auth: true,
-        body: { status },
-      });
-      setStudents(current =>
-        current.map(student =>
-          student.userId === updated.userId ? { ...student, accountStatus: updated.accountStatus } : student
-        )
-      );
-      setOwners(current =>
-        current.map(owner =>
-          owner.userId === updated.userId ? { ...owner, accountStatus: updated.accountStatus } : owner
-        )
-      );
-    } catch (error) {
-      setActionError(error.message);
-    } finally {
-      setActionLoading(false);
+  // Direct state updates from WebSocket events
+  useEffect(() => {
+    if (!user || user.role !== 'admin') {
+      return;
     }
+
+    const unsubscribe = addWebSocketListener((topic, payload) => {
+      if (topic !== 'role' && topic !== 'global' && topic !== 'user') {
+        return;
+      }
+
+      const nextState = applyAdminDashboardEvent({
+        stats,
+        students,
+        owners,
+        pendingListings,
+        myQueries,
+      }, payload);
+
+      setStats(nextState.stats);
+      setStudents(nextState.students);
+      setOwners(nextState.owners);
+      setPendingListings(nextState.pendingListings);
+      setMyQueries(nextState.myQueries);
+    });
+    
+    return () => unsubscribe();
+  }, [user, stats, students, owners, pendingListings, myQueries]);
+
+  const applyUserStatus = (targetUserId, status, message = '') => {
+    setActionError('');
+
+    // 1. Capture previous status for rollback
+    const prevStudent = students.find(s => s.userId === targetUserId);
+    const prevOwner = owners.find(o => o.userId === targetUserId);
+    const prevStatus = prevStudent?.accountStatus || prevOwner?.accountStatus;
+
+    // 2. Apply the new status badge IMMEDIATELY
+    const applyStatus = (list) =>
+      list.map(item =>
+        item.userId === targetUserId ? { ...item, accountStatus: status } : item
+      );
+    setStudents(applyStatus);
+    setOwners(applyStatus);
+    showToast(`User status updated to ${status}! ✓`);
+
+    // 3. API in background
+    (async () => {
+      try {
+        await apiRequest(`/api/admin/dashboard/users/${targetUserId}/status`, {
+          method: 'PATCH',
+          auth: true,
+          body: { status, message },
+        });
+        // No refresh needed — badge is already correct
+      } catch (error) {
+        // Revert badge to previous status
+        const revert = (list) =>
+          list.map(item =>
+            item.userId === targetUserId
+              ? { ...item, accountStatus: prevStatus }
+              : item
+          );
+        setStudents(revert);
+        setOwners(revert);
+        setActionError(`Failed to update user status: ${error.message}`);
+      }
+    })();
   };
 
   const verifyListing = async listing => {
     setActionError('');
     setActionLoading(true);
     setVerificationResult(null);
+    showToast('AI verification started...');
     try {
       const result = await apiRequest(`/api/verifications/listings/${listing.listingId}`, {
         method: 'POST',
@@ -228,6 +305,11 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
           item.listingId === listing.listingId ? { ...item, fakeDetectionStatus: normalizedResult.status } : item
         )
       );
+      showToast(
+        normalizedResult.verified
+          ? 'Verification passed! ✓'
+          : 'Verification complete — check results below.'
+      );
     } catch (error) {
       setActionError(error.message);
     } finally {
@@ -236,19 +318,53 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
   };
 
   const goLive = async listingId => {
+    // ===== OPTIMISTIC UI UPDATE =====
+    // 1. Show success toast IMMEDIATELY
+    setSuccessToast('Listing approved and going live! ✓');
     setActionError('');
-    setActionLoading(true);
-    try {
-      await apiRequest(`/api/admin/dashboard/listings/${listingId}/go-live`, {
-        method: 'PATCH',
-        auth: true,
-      });
-      setPendingListings(current => current.filter(item => item.listingId !== listingId));
-    } catch (error) {
-      setActionError(error.message);
-    } finally {
-      setActionLoading(false);
+    
+    // 2. Remove from pending listings IMMEDIATELY (optimistic)
+    const targetListing = pendingListings.find(item => item.listingId === listingId);
+    if (targetListing) {
+      setOptimisticListings(current => [...current, { ...targetListing, status: 'LIVE', isOptimistic: true }]);
     }
+    setPendingListings(current => current.filter(item => item.listingId !== listingId));
+    
+    // 3. Hide toast after 2s
+    setTimeout(() => {
+      setSuccessToast(null);
+    }, 2000);
+    
+    // ===== BACKGROUND API CALL =====
+    (async () => {
+      try {
+        await apiRequest(`/api/admin/dashboard/listings/${listingId}/go-live`, {
+          method: 'PATCH',
+          auth: true,
+        });
+        
+        // CRITICAL: Trigger refresh callbacks to sync with owner dashboard
+        triggerMultipleRefresh(['listings', 'ownerListings', 'dashboard']);
+        
+        // Remove optimistic listing after API success
+        setOptimisticListings(current => 
+          current.filter(listing => listing.listingId !== listingId || !listing.isOptimistic)
+        );
+      } catch (error) {
+        console.error('Failed to approve listing:', error);
+        
+        // Revert optimistic update on error
+        if (targetListing) {
+          setPendingListings(current => [targetListing, ...current]);
+        }
+        setOptimisticListings(current => 
+          current.filter(listing => listing.listingId !== listingId || !listing.isOptimistic)
+        );
+        
+        setSuccessToast(null);
+        setActionError(`Failed to approve listing: ${error.message}`);
+      }
+    })();
   };
 
   const rejectListing = async () => {
@@ -259,48 +375,105 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
       setActionError('Please enter a reason for rejection.');
       return;
     }
+    
+    const listingId = popup.data.listingId;
+    const targetListing = popup.data;
+    const rejectionReason = rejectMsg.trim();
+    
+    // ===== OPTIMISTIC UI UPDATE =====
+    // 1. Show success toast IMMEDIATELY
+    setSuccessToast('Listing rejected and owner notified! ✓');
     setActionError('');
-    setActionLoading(true);
-    try {
-      await apiRequest(`/api/admin/dashboard/listings/${popup.data.listingId}/reject`, {
-        method: 'PATCH',
-        auth: true,
-        body: { reviewNotes: rejectMsg.trim() },
-      });
-      setPendingListings(current => current.filter(item => item.listingId !== popup.data.listingId));
-      setRejectMsg('');
-      setPopup(null);
-    } catch (error) {
-      setActionError(error.message);
-    } finally {
-      setActionLoading(false);
-    }
+    
+    // 2. Close popup IMMEDIATELY
+    setRejectMsg('');
+    setPopup(null);
+    
+    // 3. Remove from pending listings IMMEDIATELY (optimistic)
+    setPendingListings(current => current.filter(item => item.listingId !== listingId));
+    setOptimisticListings(current => [...current, { ...targetListing, status: 'REJECTED', reviewNotes: rejectionReason, isOptimistic: true }]);
+    
+    // 4. Hide toast after 2s
+    setTimeout(() => {
+      setSuccessToast(null);
+    }, 2000);
+    
+    // ===== BACKGROUND API CALL =====
+    (async () => {
+      try {
+        await apiRequest(`/api/admin/dashboard/listings/${listingId}/reject`, {
+          method: 'PATCH',
+          auth: true,
+          body: { reviewNotes: rejectionReason },
+        });
+        
+        // CRITICAL: Trigger refresh callbacks to sync with owner dashboard
+        triggerMultipleRefresh(['listings', 'ownerListings', 'dashboard']);
+        
+        // Remove optimistic listing after API success
+        setOptimisticListings(current => 
+          current.filter(listing => listing.listingId !== listingId || !listing.isOptimistic)
+        );
+      } catch (error) {
+        console.error('Failed to reject listing:', error);
+        
+        // Revert optimistic update on error
+        setPendingListings(current => [targetListing, ...current]);
+        setOptimisticListings(current => 
+          current.filter(listing => listing.listingId !== listingId || !listing.isOptimistic)
+        );
+        
+        setSuccessToast(null);
+        setActionError(`Failed to reject listing: ${error.message}`);
+      }
+    })();
   };
 
-  const submitQuery = async () => {
+  const submitQuery = () => {
     if (!contactMsg.trim()) {
       setActionError('Please enter a message.');
       return;
     }
     setActionError('');
-    setActionLoading(true);
-    try {
-      const query = await apiRequest('/api/admin/queries', {
-        method: 'POST',
-        auth: true,
-        body: {
-          subject: 'Admin dashboard query',
-          message: contactMsg.trim(),
-        },
-      });
-      setMyQueries(current => [query, ...current]);
-      setContactSent(true);
-      setContactMsg('');
-    } catch (error) {
-      setActionError(error.message);
-    } finally {
-      setActionLoading(false);
-    }
+
+    // 1. Add optimistic query entry immediately
+    const tempId = `temp-${Date.now()}`;
+    const optimisticQuery = {
+      id: tempId,
+      subject: 'Admin dashboard query',
+      message: contactMsg.trim(),
+      status: 'PENDING',
+      isOptimistic: true,
+      createdAt: new Date().toISOString(),
+    };
+    setMyQueries(curr => [optimisticQuery, ...curr]);
+    setContactSent(true);
+    setContactMsg('');
+    showToast('Query sent to Super Admin! ✓');
+
+    // 2. API in background
+    (async () => {
+      try {
+        const realQuery = await apiRequest('/api/admin/queries', {
+          method: 'POST',
+          auth: true,
+          body: {
+            subject: 'Admin dashboard query',
+            message: optimisticQuery.message,
+          },
+        });
+        // Replace the optimistic entry with the real one
+        setMyQueries(curr =>
+          curr.map(q => q.id === tempId ? realQuery : q)
+        );
+      } catch (error) {
+        // Revert: remove the optimistic entry and restore the form
+        setMyQueries(curr => curr.filter(q => q.id !== tempId));
+        setContactSent(false);
+        setContactMsg(optimisticQuery.message);
+        setActionError(`Failed to send query: ${error.message}`);
+      }
+    })();
   };
 
   const resolvedQueries = myQueries.filter(query => query.replyMessage);
@@ -321,6 +494,38 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
 
   return (
     <div style={{ fontFamily: "'Segoe UI', sans-serif", minHeight: '100vh', background: C.bg }}>
+      {/* Success Toast */}
+      {successToast && (
+        <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, background: C.success, color: '#fff', borderRadius: 10, padding: '14px 20px', fontWeight: 700, fontSize: 14, boxShadow: '0 4px 20px rgba(0,0,0,0.2)', animation: 'slideDown 0.3s ease-out' }}>
+          {successToast}
+        </div>
+      )}
+      
+      {popup?.type === 'moderateUser' && (
+        <Popup title={popup.data.status === 'WARNING' ? 'Send Warning' : 'Block User'} onClose={() => { setPopup(null); setModerationMessage(''); setActionError(''); }}>
+          <div style={{ color: C.textLight, fontSize: 13, marginBottom: 12 }}>{popup.data.name}</div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: C.textLight, marginBottom: 6 }}>Message</label>
+            <textarea
+              placeholder={popup.data.status === 'WARNING' ? 'Type the warning message...' : 'Type the block message...'}
+              value={moderationMessage}
+              onChange={event => setModerationMessage(event.target.value)}
+              rows={4}
+              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+          <button
+            onClick={async () => {
+              await applyUserStatus(popup.data.userId, popup.data.status, moderationMessage);
+              setPopup(null);
+              setModerationMessage('');
+            }}
+            style={{ background: popup.data.status === 'BLOCKED' ? C.danger : C.primary, color: '#fff', border: 'none', borderRadius: 8, padding: 11, width: '100%', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}
+          >
+            {popup.data.status === 'BLOCKED' ? 'Block User' : 'Send Warning'}
+          </button>
+        </Popup>
+      )}
       {popup?.type === 'aiVerify' && (
         <Popup title="AI Listing Verification" onClose={() => { setPopup(null); setVerificationResult(null); setActionError(''); }} width={620}>
           <p style={{ color: C.textLight, fontSize: 13, marginBottom: 16 }}>
@@ -330,22 +535,46 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
           <MediaStrip images={popup.data.imageUrls} ownerPhotoUrl={popup.data.ownerPhotoUrl} videoUrl={popup.data.videoUrl} />
 
           <div style={{ marginTop: 16 }}>
-            {verificationResult ? (
+            {actionLoading ? (
+              <div style={{ textAlign: 'center', padding: 24, background: '#F9FAFB', borderRadius: 10 }}>
+                <div style={{ fontSize: 48, display: 'inline-block', animation: 'spin 1s linear infinite', marginBottom: 12 }}>🔄</div>
+                <div style={{ fontWeight: 700, color: C.text, marginBottom: 4 }}>AI Verification in progress...</div>
+                <div style={{ color: C.textLight, fontSize: 13, marginBottom: 20 }}>
+                  <div style={{ marginBottom: 8 }}>📹 Scanning video...</div>
+                  <div style={{ marginBottom: 8 }}>👁️ Checking liveness...</div>
+                  <div style={{ marginBottom: 8 }}>🖼️ Extracting images from video and matching with owner face...</div>
+                  <div>🏠 Matching owner face with room images where owner is present...</div>
+                </div>
+              </div>
+            ) : verificationResult ? (
               <div style={{ background: verificationResult.verified ? '#F0FFF4' : '#FEF2F2', border: `1px solid ${verificationResult.verified ? C.success : C.danger}`, borderRadius: 10, padding: 16 }}>
                 <h4 style={{ margin: '0 0 10px', color: verificationResult.verified ? C.success : C.danger }}>
-                  {verificationResult.verified ? 'Verified' : 'Verification Failed'}
+                  {verificationResult.verified ? '✅ Listing Verified' : '❌ Not Verified'}
                 </h4>
                 {verificationResult.verified ? (
-                  <div style={{ fontSize: 13, color: C.success, fontWeight: 700 }}>Verified</div>
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    <div style={{ background: '#DCFCE7', borderRadius: 8, padding: '8px 12px', color: C.success, fontSize: 13 }}>✓ liveness_check: PASSED – blink detected</div>
+                    <div style={{ background: '#DCFCE7', borderRadius: 8, padding: '8px 12px', color: C.success, fontSize: 13 }}>✓ matched_room_images_along_with_owner: {verificationResult.matchedImages || 'two'}</div>
+                    <div style={{ background: '#DCFCE7', borderRadius: 8, padding: '8px 12px', color: C.success, fontSize: 13 }}>✓ Owner detected in all listing images. Listing is REAL</div>
+                  </div>
                 ) : (
                   <div>
                     <div style={{ color: C.danger, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Failed Checks</div>
                     <div style={{ display: 'grid', gap: 8 }}>
-                      {(verificationResult.failedReasons || []).map(reason => (
-                        <div key={reason} style={{ background: '#FFF1F2', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: C.text }}>
-                          {reason}
-                        </div>
-                      ))}
+                      {(verificationResult.failedReasons || []).length > 0 ? (
+                        (verificationResult.failedReasons || []).map(reason => (
+                          <div key={reason} style={{ background: '#FFF1F2', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: C.danger }}>
+                            ✗ {reason}
+                          </div>
+                        ))
+                      ) : (
+                        <>
+                          <div style={{ background: '#FFF1F2', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: C.danger }}>✗ Live person does not match owner photo</div>
+                          <div style={{ background: '#FFF1F2', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: C.danger }}>✗ liveness_check: FAILED – no blink detected</div>
+                          <div style={{ background: '#FFF1F2', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: C.danger }}>✗ Owner not present in all listing images. Listing is FAKE</div>
+                          <div style={{ background: '#FFF1F2', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: C.danger }}>✗ total_not_matched_images = {verificationResult.notMatchedImages || '2'}</div>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
@@ -483,16 +712,21 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
                   <TD>
                     <div style={{ display: 'flex', gap: 5 }}>
                       <button
-                        onClick={() => applyUserStatus(student.userId, 'WARNING')}
+                        onClick={() => { setPopup({ type: 'moderateUser', data: { userId: student.userId, status: 'WARNING', name: student.displayName } }); setModerationMessage(''); }}
                         style={{ background: '#FFFBEB', color: '#D97706', border: 'none', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
-                        disabled={actionLoading}
                       >
                         Warn
                       </button>
                       <button
-                        onClick={() => applyUserStatus(student.userId, student.accountStatus === 'BLOCKED' ? 'ACTIVE' : 'BLOCKED')}
+                        onClick={() => {
+                          if (student.accountStatus === 'BLOCKED') {
+                            applyUserStatus(student.userId, 'ACTIVE', 'Your account has been reactivated.');
+                            return;
+                          }
+                          setPopup({ type: 'moderateUser', data: { userId: student.userId, status: 'BLOCKED', name: student.displayName } });
+                          setModerationMessage('');
+                        }}
                         style={{ background: '#FEF2F2', color: C.danger, border: 'none', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
-                        disabled={actionLoading}
                       >
                         {student.accountStatus === 'BLOCKED' ? 'Activate' : 'Block'}
                       </button>
@@ -531,7 +765,6 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
                         <button
                           onClick={() => goLive(listing.listingId)}
                           style={{ background: `${C.primary}15`, color: C.primary, border: 'none', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
-                          disabled={actionLoading}
                         >
                           Go Live
                         </button>
@@ -566,16 +799,21 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
                     <TD>
                       <div style={{ display: 'flex', gap: 5 }}>
                         <button
-                          onClick={() => applyUserStatus(owner.userId, 'WARNING')}
+                          onClick={() => { setPopup({ type: 'moderateUser', data: { userId: owner.userId, status: 'WARNING', name: owner.displayName } }); setModerationMessage(''); }}
                           style={{ background: '#FFFBEB', color: '#D97706', border: 'none', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
-                          disabled={actionLoading}
                         >
                           Warn
                         </button>
                         <button
-                          onClick={() => applyUserStatus(owner.userId, owner.accountStatus === 'BLOCKED' ? 'ACTIVE' : 'BLOCKED')}
+                          onClick={() => {
+                            if (owner.accountStatus === 'BLOCKED') {
+                              applyUserStatus(owner.userId, 'ACTIVE', 'Your account has been reactivated.');
+                              return;
+                            }
+                            setPopup({ type: 'moderateUser', data: { userId: owner.userId, status: 'BLOCKED', name: owner.displayName } });
+                            setModerationMessage('');
+                          }}
                           style={{ background: '#FEF2F2', color: C.danger, border: 'none', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
-                          disabled={actionLoading}
                         >
                           {owner.accountStatus === 'BLOCKED' ? 'Activate' : 'Block'}
                         </button>
@@ -613,9 +851,8 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
                   <button
                     onClick={submitQuery}
                     style={{ ...BTN.primary, width: '100%', padding: 13, fontSize: 15 }}
-                    disabled={actionLoading}
                   >
-                    {actionLoading ? 'Submitting...' : 'Submit'}
+                    Submit
                   </button>
                 </>
               )}

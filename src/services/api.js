@@ -43,6 +43,9 @@ function mapAuthUser(user) {
     profileComplete: Boolean(user.profileComplete),
     completionPercentage: user.completionPercentage || 0,
     identityVerified: Boolean(user.identityVerified),
+    accountStatus: user.accountStatus,
+    blockReason: user.blockReason,
+    isBlocked: user.accountStatus === 'BLOCKED',
   };
 }
 

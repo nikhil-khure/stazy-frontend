@@ -1,8 +1,13 @@
 import { useState } from 'react';
 import { C } from '../../constants/theme';
 
-export default function SlidingTabs({ tabs, children }) {
-  const [active, setActive] = useState(0);
+export default function SlidingTabs({ tabs, children, activeTab, onTabChange }) {
+  const [internalActive, setInternalActive] = useState(0);
+  
+  // Support both controlled and uncontrolled modes
+  const isControlled = activeTab !== undefined && onTabChange !== undefined;
+  const active = isControlled ? activeTab : internalActive;
+  const setActive = isControlled ? onTabChange : setInternalActive;
 
   return (
     <div>

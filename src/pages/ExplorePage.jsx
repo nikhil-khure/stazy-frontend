@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { C, BTN } from '../constants/theme';
-import { TESTIMONIALS } from '../data/siteContent';
 import { Logo, RoomCard, RatingBadge, VerifiedBadge, CategoryBadge, Tag, StarRating, Footer } from '../components/shared/SharedComponents';
+import Popup from '../components/shared/Popup';
 import { apiRequest } from '../services/api';
 import { mapListingToRoom } from '../utils/listingMapper';
 import { getDashboardPageForUser } from '../utils/dashboardRouting';
+import { useBookingStatus } from '../hooks/useDashboardData';
 
 const isRemoteVisual = (value) => typeof value === 'string' && /^(https?:|blob:|data:)/i.test(value);
 
@@ -13,6 +14,11 @@ function RoomDetail({ room, onBack, navigate, user }) {
   const [imgIdx, setImgIdx] = useState(0);
   const [bookingMessage, setBookingMessage] = useState('');
   const [bookingLoading, setBookingLoading] = useState(false);
+  const [reviews, setReviews] = useState([]);
+  const [shareOpen, setShareOpen] = useState(false);
+
+  // Check if user has already booked this listing (Requirement 11)
+  const { bookedListings, loading: bookingStatusLoading } = useBookingStatus([room], user);
 
   // Auto-slide effect
   useEffect(() => {
@@ -23,6 +29,24 @@ function RoomDetail({ room, onBack, navigate, user }) {
     return () => clearInterval(timer);
   }, [room.images]);
 
+  useEffect(() => {
+    let active = true;
+    apiRequest(`/api/public/listings/${room.id}/reviews`)
+      .then(items => {
+        if (active) {
+          setReviews(items || []);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setReviews([]);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [room.id]);
+
   const nextImg = (e) => { e.stopPropagation(); setImgIdx(prev => (prev + 1) % room.images.length); };
   const prevImg = (e) => { e.stopPropagation(); setImgIdx(prev => (prev - 1 + room.images.length) % room.images.length); };
   const currentImage = room.images?.[imgIdx];
@@ -32,8 +56,17 @@ function RoomDetail({ room, onBack, navigate, user }) {
       navigate('login');
       return;
     }
+    // Block OWNER, ADMIN, and SUPER_ADMIN from booking
+    if (user.role === 'owner' || user.role === 'admin' || user.role === 'superAdmin') {
+      setBookingMessage('You are not allowed to book a room');
+      return;
+    }
     if (user.role !== 'student') {
       setBookingMessage('Only student accounts can create booking requests.');
+      return;
+    }
+    if (room.status === 'UNDER_REVIEW') {
+      setBookingMessage('Listing is under update review. Once it gets verified again, you can book this room.');
       return;
     }
     if (!user.profileComplete) {
@@ -60,8 +93,48 @@ function RoomDetail({ room, onBack, navigate, user }) {
     }
   };
 
+  const shareUrl = `${window.location.origin}/listing/${room.id}`;
+  const shareText = `${room.title} - ${room.location}`;
+  const shareTargets = [
+    { label: 'WhatsApp', href: `https://wa.me/?text=${encodeURIComponent(`${shareText} ${shareUrl}`)}` },
+    { label: 'Facebook', href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}` },
+    { label: 'Email', href: `mailto:?subject=${encodeURIComponent(room.title)}&body=${encodeURIComponent(`${shareText}\n${shareUrl}`)}` },
+  ];
+
   return (
     <div style={{ fontFamily: "'Segoe UI', sans-serif", background: C.bg, minHeight: '100vh' }}>
+      {shareOpen && (
+        <Popup title="Share Listing" onClose={() => setShareOpen(false)} width={420}>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {shareTargets.map(target => (
+              <a key={target.label} href={target.href} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+                <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 14px', color: C.text, fontWeight: 700 }}>
+                  {target.label}
+                </div>
+              </a>
+            ))}
+            <button
+              onClick={async () => {
+                if (navigator.share) {
+                  try {
+                    await navigator.share({ title: room.title, text: shareText, url: shareUrl });
+                    setShareOpen(false);
+                    return;
+                  } catch (error) {
+                    // ignore share cancellation
+                  }
+                }
+                await navigator.clipboard.writeText(`${shareText} ${shareUrl}`);
+                setBookingMessage('Listing link copied to clipboard.');
+                setShareOpen(false);
+              }}
+              style={{ ...BTN.primary, width: '100%', padding: 12 }}
+            >
+              Copy Link
+            </button>
+          </div>
+        </Popup>
+      )}
       <div style={{ background: C.primary, padding: '0 24px' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', height: 56, display: 'flex', alignItems: 'center', gap: 12 }}>
           <button onClick={onBack} style={{ ...BTN.ghost, color: '#fff', fontSize: 20 }}>←</button>
@@ -75,7 +148,7 @@ function RoomDetail({ room, onBack, navigate, user }) {
           <div style={{ height: 320, background: `linear-gradient(135deg, ${C.primary}22, ${C.secondary}33)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 100, position: 'relative' }}>
             <div style={{ animation: 'fadein 0.5s', width: '100%', height: '100%' }}>
               {isRemoteVisual(currentImage) ? (
-                <img src={currentImage} alt={room.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <img src={currentImage} alt={room.title} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }} />
               ) : (
                 <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{currentImage}</div>
               )}
@@ -121,26 +194,78 @@ function RoomDetail({ room, onBack, navigate, user }) {
               ))}
             </div>
             <h3 style={{ color: C.text, marginBottom: 10 }}>💬 Student Reviews</h3>
-            {TESTIMONIALS.slice(0, 2).map((t, i) => (
+            {(reviews.length ? reviews : []).map((t, i) => (
               <div key={i} style={{ background: C.bg, borderRadius: 10, padding: 16, marginBottom: 10, border: `1px solid ${C.border}` }}>
                 <div style={{ display: 'flex', gap: 10, marginBottom: 6 }}>
-                  <span style={{ fontSize: 22 }}>{t.avatar}</span>
+                  {t.profilePhotoUrl ? (
+                    <img 
+                      src={t.profilePhotoUrl} 
+                      alt={t.displayName || 'Student'} 
+                      style={{ 
+                        width: 40, 
+                        height: 40, 
+                        borderRadius: '50%', 
+                        objectFit: 'cover',
+                        border: `2px solid ${C.border}`
+                      }} 
+                    />
+                  ) : (
+                    <div style={{ 
+                      width: 40, 
+                      height: 40, 
+                      borderRadius: '50%', 
+                      background: C.primary + '20',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 18,
+                      fontWeight: 700,
+                      color: C.primary,
+                      border: `2px solid ${C.border}`
+                    }}>
+                      {(t.displayName || t.name || 'S').charAt(0).toUpperCase()}
+                    </div>
+                  )}
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{t.name}</div>
-                    <StarRating rating={t.rating} size={12} />
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{t.displayName || t.name || 'Verified student'}</div>
+                    <StarRating rating={t.rating || 0} size={12} />
                   </div>
                 </div>
-                <p style={{ color: C.textLight, fontSize: 13, margin: 0 }}>{t.text}</p>
+                <p style={{ color: C.textLight, fontSize: 13, margin: 0 }}>{t.message || t.text}</p>
               </div>
             ))}
             <div style={{ display: 'flex', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
-              <button onClick={handleBookRoom}
-                style={{ ...BTN.primary, padding: '13px 28px', fontSize: 15, opacity: bookingLoading ? 0.7 : 1, flex: 1, minWidth: 160 }}>
-                {bookingLoading ? 'Submitting...' : user ? '📅 Book Room' : '🔒 Login to Book'}
+              <button 
+                onClick={handleBookRoom}
+                disabled={bookedListings.has(room.id) || bookingLoading || (user && (user.role === 'owner' || user.role === 'admin' || user.role === 'superAdmin')) || room.status === 'UNDER_REVIEW'}
+                style={{ 
+                  ...BTN.primary, 
+                  padding: '13px 28px', 
+                  fontSize: 15, 
+                  opacity: (bookingLoading || bookedListings.has(room.id) || (user && (user.role === 'owner' || user.role === 'admin' || user.role === 'superAdmin')) || room.status === 'UNDER_REVIEW') ? 0.5 : 1,
+                  cursor: (bookedListings.has(room.id) || (user && (user.role === 'owner' || user.role === 'admin' || user.role === 'superAdmin')) || room.status === 'UNDER_REVIEW') ? 'not-allowed' : 'pointer',
+                  flex: 1, 
+                  minWidth: 160 
+                }}
+              >
+                {bookingLoading ? 'Submitting...' : 
+                 room.status === 'UNDER_REVIEW' ? '🔄 Under Review' :
+                 bookedListings.has(room.id) ? '✓ Already Requested' : 
+                 user ? '📅 Book Room' : '🔒 Login to Book'}
               </button>
-              <button style={{ ...BTN.outline, padding: '13px 22px', fontSize: 14 }}>📤 Share Details</button>
+              <button onClick={() => setShareOpen(true)} style={{ ...BTN.outline, padding: '13px 22px', fontSize: 14 }}>📤 Share Details</button>
             </div>
             {bookingMessage && <div style={{ marginTop: 14, fontSize: 13, color: bookingMessage.includes('successfully') ? C.success : C.danger }}>{bookingMessage}</div>}
+            {user && (user.role === 'owner' || user.role === 'admin' || user.role === 'superAdmin') && !bookingMessage && (
+              <div style={{ marginTop: 14, fontSize: 13, color: C.danger, background: '#FEF2F2', borderRadius: 8, padding: '10px 12px', border: `1px solid ${C.danger}22` }}>
+                ⚠️ You are not allowed to book a room
+              </div>
+            )}
+            {room.status === 'UNDER_REVIEW' && !bookingMessage && (
+              <div style={{ marginTop: 14, fontSize: 13, color: '#D97706', background: '#FFFBEB', borderRadius: 8, padding: '10px 12px', border: '1px solid #D9770622' }}>
+                ⚠️ Listing is under update review. Once it gets verified again, you can book this room.
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -149,13 +274,18 @@ function RoomDetail({ room, onBack, navigate, user }) {
 }
 
 // ─── EXPLORE PAGE ─────────────────────────────────────────────────────────────
-export default function ExplorePage({ navigate, user }) {
+export default function ExplorePage({ navigate, user, searchQuery = '' }) {
   const [filters, setFilters] = useState({ price: '', type: '', rating: '', cat: '' });
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(searchQuery);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
   const [rooms, setRooms] = useState([]);
   const PER_PAGE = 4;
+
+  // Update search when searchQuery prop changes
+  useEffect(() => {
+    setSearch(searchQuery);
+  }, [searchQuery]);
 
   useEffect(() => {
     let active = true;
@@ -289,3 +419,4 @@ export default function ExplorePage({ navigate, user }) {
     </div>
   );
 }
+

@@ -107,7 +107,7 @@ export function RoomCard({ room, onClick }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         {isRemoteVisual(currentImage) ? (
-          <img src={currentImage} alt={room.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <img src={currentImage} alt={room.title} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }} />
         ) : (
           <span style={{ fontSize: 64 }}>{currentImage}</span>
         )}
@@ -171,7 +171,10 @@ export function RoomCard({ room, onClick }) {
 }
 
 // ─── FOOTER ───────────────────────────────────────────────────────────────────
-export function Footer({ navigate }) {
+export function Footer({ navigate, contactDetails }) {
+  const email = contactDetails?.email || 'support@stazy.in';
+  const mobile = contactDetails?.mobileNumber || '+91 98765 43210';
+  const city = contactDetails?.city || 'Pune, Maharashtra';
   return (
     <footer style={{ background: C.primary, color: '#fff', padding: '32px 0 16px' }}>
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px' }}>
@@ -195,9 +198,8 @@ export function Footer({ navigate }) {
           <div>
             <h4 style={{ margin: '0 0 12px', color: C.accent }}>Contact Us</h4>
             <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, margin: 0 }}>
-              📧 support@stazy.in<br />
-              📞 +91 98765 43210<br />
-              📍 Pune, Maharashtra
+              📧 {contactDetails?.email || 'superadmin@stazy.com'}<br />
+              📞 {contactDetails?.mobileNumber || '9999999999'}
             </p>
           </div>
         </div>

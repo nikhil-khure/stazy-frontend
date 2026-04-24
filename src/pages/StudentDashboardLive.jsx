@@ -1,12 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { C, BTN } from '../constants/theme';
-import { Logo, RoomCard } from '../components/shared/SharedComponents';
-import { FilePreviewList, PasswordRequirements } from '../components/shared/FormHelpers';
+import { Logo, RoomCard, StarRating } from '../components/shared/SharedComponents';
+import { PasswordRequirements } from '../components/shared/FormHelpers';
+import { ImagePreviewGrid, ProfilePhotoPreview } from '../components/shared/ImagePreview';
+import { ComplaintTable, EvidenceViewerPopup, DescriptionViewerPopup } from '../components/ComplaintComponents';
+import { StudentCancelRequestTable, ViewReasonPopup } from '../components/CancelRequestComponents';
 import Popup from '../components/shared/Popup';
 import SlidingTabs from '../components/shared/SlidingTabs';
+import BlockedAccountBanner from '../components/BlockedAccountBanner';
 import { apiRequest, bootstrapCurrentUser, createMultipartForm, uploadMedia } from '../services/api';
+import { apiWithRefresh } from '../services/apiWithRefresh';
+import { addWebSocketListener } from '../services/websocket';
+import NotificationBell from '../components/shared/NotificationBell';
+import { useDashboardData } from '../hooks/useDashboardData';
 import { clearSession } from '../services/session';
 import { mapListingToRoom } from '../utils/listingMapper';
+import { applyRealtimeDashboardEvent } from '../utils/realtimeDashboardData';
 import { validatePassword } from '../utils/passwordRules';
 import { prepareVerificationDisplay } from '../utils/verificationDisplay';
 
@@ -30,9 +39,7 @@ function humanize(value) {
 }
 
 function formatDate(value) {
-  if (!value) {
-    return '-';
-  }
+  if (!value) return '-';
   try {
     return new Date(value).toLocaleDateString();
   } catch (error) {
@@ -41,9 +48,7 @@ function formatDate(value) {
 }
 
 function formatDateTime(value) {
-  if (!value) {
-    return '-';
-  }
+  if (!value) return '-';
   try {
     return new Date(value).toLocaleString();
   } catch (error) {
@@ -57,15 +62,8 @@ function formatCurrency(value) {
 }
 
 function formatMonthRange(start, end) {
-  if (!start || !end) {
-    return '-';
-  }
+  if (!start || !end) return '-';
   return `${formatDate(start)} to ${formatDate(end)}`;
-}
-
-function findLatestMessage(complaint, type) {
-  const messages = complaint?.messages || [];
-  return [...messages].reverse().find(message => message.messageType === type) || null;
 }
 
 function StatusBadge({ status }) {
@@ -181,9 +179,7 @@ function EmptyState({ icon, title, subtitle }) {
 }
 
 function VerificationResultPanel({ result }) {
-  if (!result) {
-    return null;
-  }
+  if (!result) return null;
 
   const failedReasons = result.failedReasons || [];
 
@@ -195,22 +191,38 @@ function VerificationResultPanel({ result }) {
       </div>
       <div style={{ fontSize: 13, color: C.textLight, marginBottom: 12 }}>Received on {formatDateTime(result.createdAt)}</div>
       {result.verified ? (
-        <div style={{ color: C.success, fontWeight: 800, fontSize: 16 }}>Verified</div>
+        <div>
+          <div style={{ color: C.success, fontWeight: 800, fontSize: 16, marginBottom: 12 }}>✅ Verified</div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ background: '#F0FFF4', borderRadius: 8, padding: '8px 12px', color: C.success, fontSize: 13 }}>✓ Barcode matched</div>
+            <div style={{ background: '#F0FFF4', borderRadius: 8, padding: '8px 12px', color: C.success, fontSize: 13 }}>✓ College name matched</div>
+            <div style={{ background: '#F0FFF4', borderRadius: 8, padding: '8px 12px', color: C.success, fontSize: 13 }}>✓ Face matched</div>
+            <div style={{ background: '#F0FFF4', borderRadius: 8, padding: '8px 12px', color: C.success, fontSize: 13 }}>✓ PRN matched</div>
+          </div>
+        </div>
       ) : (
         <div>
-          <div style={{ marginBottom: 10, color: C.danger, fontWeight: 800, fontSize: 15 }}>Verification Failed</div>
+          <div style={{ marginBottom: 10, color: C.danger, fontWeight: 800, fontSize: 15 }}>❌ Not Verified</div>
           <div style={{ display: 'grid', gap: 8 }}>
-            {failedReasons.map(reason => (
-              <div key={reason} style={{ background: '#FEF2F2', borderRadius: 8, padding: '10px 12px', color: C.text, fontSize: 13 }}>
-                {reason}
+            {failedReasons.length > 0 ? failedReasons.map(reason => (
+              <div key={reason} style={{ background: '#FEF2F2', borderRadius: 8, padding: '10px 12px', color: C.danger, fontSize: 13 }}>
+                ✗ {reason}
               </div>
-            ))}
+            )) : (
+              <>
+                <div style={{ background: '#FEF2F2', borderRadius: 8, padding: '10px 12px', color: C.danger, fontSize: 13 }}>✗ PRN not matched</div>
+                <div style={{ background: '#FEF2F2', borderRadius: 8, padding: '10px 12px', color: C.danger, fontSize: 13 }}>✗ Face not matched</div>
+                <div style={{ background: '#FEF2F2', borderRadius: 8, padding: '10px 12px', color: C.danger, fontSize: 13 }}>✗ College name not matched</div>
+                <div style={{ background: '#FEF2F2', borderRadius: 8, padding: '10px 12px', color: C.danger, fontSize: 13 }}>✗ Barcode not matched</div>
+              </>
+            )}
           </div>
         </div>
       )}
     </div>
   );
 }
+
 
 function RoomActivities({
   bookingRequests,
@@ -222,7 +234,7 @@ function RoomActivities({
   onCreateComplaint,
   onCreateCancelRequest,
   onCloseComplaint,
-  onReopenComplaint,
+  onReComplaint,
   onSubmitOwnerFeedback,
   actionLoading,
 }) {
@@ -255,7 +267,7 @@ function RoomActivities({
   };
 
   const handleReComplaintSubmit = async () => {
-    await onReopenComplaint(reComplaintData.complaintId, reComplaintData.message, reComplaintData.attachments);
+    await onReComplaint(reComplaintData.complaintId, reComplaintData.message, reComplaintData.attachments);
     setPopup(null);
     setReComplaintData({ complaintId: null, message: '', attachments: [] });
   };
@@ -279,12 +291,6 @@ function RoomActivities({
         </Popup>
       )}
 
-      {popup?.type === 'ownerJustification' && (
-        <Popup title="Owner Justification" onClose={() => setPopup(null)}>
-          <p style={{ color: C.text, lineHeight: 1.7, fontSize: 14 }}>{popup.data.message}</p>
-        </Popup>
-      )}
-
       {popup?.type === 'reComplaint' && (
         <Popup title="Re-Complaint" onClose={() => setPopup(null)}>
           <FTextarea
@@ -293,20 +299,26 @@ function RoomActivities({
             value={reComplaintData.message}
             onChange={event => setReComplaintData(current => ({ ...current, message: event.target.value }))}
           />
-          <div style={{ border: `2px dashed ${C.border}`, borderRadius: 8, padding: '12px 16px', textAlign: 'center', marginBottom: 12 }}>
-            <span style={{ color: C.textLight, fontSize: 13, marginRight: 8 }}>📎 Attach Files</span>
-            <label style={{ ...BTN.outline, padding: '5px 14px', fontSize: 12, cursor: 'pointer', display: 'inline-block' }}>
-              <input
-                type="file"
-                multiple
-                style={{ display: 'none' }}
-                onChange={event => setReComplaintData(current => ({ ...current, attachments: Array.from(event.target.files || []) }))}
-              />
-              Choose Files
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 8 }}>
+              Attach Evidence (Optional)
             </label>
+            <input
+              type="file"
+              multiple
+              accept="image/*,video/*"
+              onChange={event => setReComplaintData(current => ({ ...current, attachments: Array.from(event.target.files || []) }))}
+              style={{ width: '100%', padding: '8px', border: `1px solid ${C.border}`, borderRadius: 8 }}
+            />
           </div>
-          <FilePreviewList files={reComplaintData.attachments} title="Re-Complaint Attachments" />
-          <button onClick={handleReComplaintSubmit} style={{ ...BTN.primary, width: '100%', padding: 11 }} disabled={actionLoading}>
+          <ImagePreviewGrid
+            files={reComplaintData.attachments}
+            onRemove={(idx) => setReComplaintData(current => ({
+              ...current,
+              attachments: current.attachments.filter((_, i) => i !== idx)
+            }))}
+          />
+          <button onClick={handleReComplaintSubmit} style={{ ...BTN.primary, width: '100%', padding: 11, marginTop: 12 }} disabled={actionLoading}>
             {actionLoading ? 'Sending...' : '📤 Send Re-Complaint'}
           </button>
         </Popup>
@@ -336,13 +348,17 @@ function RoomActivities({
                     </button>
                   </TD>
                   <TD>
-                    <button
-                      onClick={() => onRevokeRequest(request.id)}
-                      style={{ background: '#FEF2F2', color: C.danger, border: '1px solid #FCA5A5', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
-                      disabled={actionLoading || request.status !== 'PENDING'}
-                    >
-                      🚫 Revoke Request
-                    </button>
+                    {request.status === 'PENDING' ? (
+                      <button
+                        onClick={() => onRevokeRequest(request.id)}
+                        style={{ background: '#FEF2F2', color: C.danger, border: '1px solid #FCA5A5', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                        disabled={actionLoading}
+                      >
+                        🚫 Revoke Request
+                      </button>
+                    ) : (
+                      <span style={{ color: C.textLight, fontWeight: 700 }}>-</span>
+                    )}
                   </TD>
                 </TR>
               ))}
@@ -365,9 +381,6 @@ function RoomActivities({
                 <InfoRow label="Owner Name" value={currentStay.ownerName} />
                 <InfoRow label="Contact Number" value={currentStay.ownerPhone} />
                 <InfoRow label="Email ID" value={currentStay.ownerEmail} />
-                <a href={`mailto:${currentStay.ownerEmail}`} style={{ textDecoration: 'none' }}>
-                  <button style={{ ...BTN.primary, padding: '9px 20px', fontSize: 13, marginTop: 6 }}>📧 Email Owner</button>
-                </a>
               </SCard>
               <SCard title="Tenancy Details" icon="📅">
                 <InfoRow label="Joining Date" value={formatDate(currentStay.joinDate)} />
@@ -381,12 +394,13 @@ function RoomActivities({
                 </div>
                 <InfoRow label="Payment Date" value={formatDateTime(currentPayment?.paidAt)} />
                 <InfoRow label="Next Due Date" value={formatDate(currentStay.nextDueDate)} />
-                <div style={{ background: '#FFFBEB', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#92400E', marginTop: 8 }}>
-                  ⚠️ {currentPayment?.reminderMessage || currentStay.reminderMessage || 'No payment reminder at the moment.'}
-                </div>
+                {(currentPayment?.reminderMessage || currentStay.reminderMessage) && (
+                  <div style={{ background: '#FFFBEB', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#92400E', marginTop: 8 }}>
+                    ⚠️ {currentPayment?.reminderMessage || currentStay.reminderMessage}
+                  </div>
+                )}
               </SCard>
               <SCard title="Complaint Against Owner" icon="📣">
-                <FInput label="Owner ID" placeholder="Owner ID" value={currentStay.ownerUserCode || ''} onChange={() => {}} />
                 <FInput
                   label="Issue Title"
                   placeholder="Brief title of your issue"
@@ -399,20 +413,26 @@ function RoomActivities({
                   value={complaintForm.description}
                   onChange={event => setComplaintForm(current => ({ ...current, description: event.target.value }))}
                 />
-                <div style={{ border: `2px dashed ${C.border}`, borderRadius: 8, padding: '12px 16px', textAlign: 'center', marginBottom: 12 }}>
-                  <span style={{ color: C.textLight, fontSize: 13, marginRight: 8 }}>📎 Attach Files</span>
-                  <label style={{ ...BTN.outline, padding: '5px 14px', fontSize: 12, cursor: 'pointer', display: 'inline-block' }}>
-                    <input
-                      type="file"
-                      multiple
-                      style={{ display: 'none' }}
-                      onChange={event => setComplaintForm(current => ({ ...current, attachments: Array.from(event.target.files || []) }))}
-                    />
-                    Choose Files
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 8 }}>
+                    Attach Evidence (Optional)
                   </label>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*,video/*"
+                    onChange={event => setComplaintForm(current => ({ ...current, attachments: Array.from(event.target.files || []) }))}
+                    style={{ width: '100%', padding: '8px', border: `1px solid ${C.border}`, borderRadius: 8 }}
+                  />
                 </div>
-                <FilePreviewList files={complaintForm.attachments} title="Complaint Attachments" />
-                <button onClick={handleComplaintSubmit} style={{ ...BTN.primary, width: '100%', padding: 11 }} disabled={actionLoading}>
+                <ImagePreviewGrid
+                  files={complaintForm.attachments}
+                  onRemove={(idx) => setComplaintForm(current => ({
+                    ...current,
+                    attachments: current.attachments.filter((_, i) => i !== idx)
+                  }))}
+                />
+                <button onClick={handleComplaintSubmit} style={{ ...BTN.primary, width: '100%', padding: 11, marginTop: 12 }} disabled={actionLoading}>
                   {actionLoading ? 'Submitting...' : '📤 Submit Complaint to Owner'}
                 </button>
               </SCard>
@@ -470,78 +490,59 @@ function RoomActivities({
         </div>
 
         <div>
-          {cancelRequests.length === 0 ? (
-            <EmptyState icon="❌" title="No cancel requests" subtitle="Your cancel requests will appear here." />
-          ) : (
-            <TableWrap headers={['Listing', 'Room ID', 'Status', 'Owner Reason', 'Account Status', 'Requested On']}>
-              {cancelRequests.map(request => (
-                <TR key={request.id}>
-                  <TD>{request.listingTitle}</TD>
-                  <TD><span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{request.roomCode}</span></TD>
-                  <TD><StatusBadge status={request.status} /></TD>
-                  <TD style={{ whiteSpace: 'normal' }}>{request.ownerReason || '-'}</TD>
-                  <TD><StatusBadge status={request.accountStatusSnapshot} /></TD>
-                  <TD>{formatDateTime(request.requestedAt)}</TD>
-                </TR>
-              ))}
-            </TableWrap>
+          <StudentCancelRequestTable
+            requests={cancelRequests}
+            onViewOwnerMessage={(message) => setPopup({ type: 'ownerMessage', data: message })}
+          />
+          {popup?.type === 'ownerMessage' && (
+            <ViewReasonPopup
+              title="Owner Response"
+              reason={popup.data}
+              onClose={() => setPopup(null)}
+            />
           )}
         </div>
 
         <div>
-          {ownerComplaints.length === 0 ? (
-            <EmptyState icon="📣" title="No owner complaint threads" subtitle="Complaints you file against owners will appear here." />
-          ) : (
-            <TableWrap headers={['Complaint ID', 'Status', 'Owner Justification', 'Action']}>
-              {ownerComplaints.map(complaint => {
-                const latestJustification = findLatestMessage(complaint, 'JUSTIFICATION');
-                return (
-                  <TR key={complaint.id}>
-                    <TD><span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.primary }}>{String(complaint.id).slice(0, 8)}</span></TD>
-                    <TD><StatusBadge status={complaint.status} /></TD>
-                    <TD>
-                      {latestJustification ? (
-                        <button
-                          onClick={() => setPopup({ type: 'ownerJustification', data: latestJustification })}
-                          style={{ background: `${C.secondary}15`, color: C.secondary, border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
-                        >
-                          💬 Click to See
-                        </button>
-                      ) : (
-                        <span style={{ color: C.textLight, fontSize: 12 }}>Awaiting response...</span>
-                      )}
-                    </TD>
-                    <TD>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <button
-                          onClick={() => onCloseComplaint(complaint.id)}
-                          style={{ background: '#F0FFF4', color: C.success, border: '1px solid #86EFAC', borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                          disabled={actionLoading || complaint.status === 'CLOSED'}
-                        >
-                          ✓ Close
-                        </button>
-                        <button
-                          onClick={() => {
-                            setPopup({ type: 'reComplaint' });
-                            setReComplaintData({ complaintId: complaint.id, message: '', attachments: [] });
-                          }}
-                          style={{ background: '#FEF2F2', color: C.danger, border: '1px solid #FCA5A5', borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                          disabled={actionLoading || complaint.status === 'CLOSED'}
-                        >
-                          🔁 Re-Complaint
-                        </button>
-                      </div>
-                    </TD>
-                  </TR>
-                );
-              })}
-            </TableWrap>
+          <ComplaintTable
+            complaints={ownerComplaints}
+            isOwner={false}
+            onViewEvidence={(attachments) => setPopup({ type: 'evidence', data: attachments })}
+            onViewDescription={(title, description) => setPopup({ type: 'description', title, data: description })}
+            onViewJustification={(message) => setPopup({ type: 'justification', data: message })}
+            onReComplaint={(complaintId) => {
+              setPopup({ type: 'reComplaint' });
+              setReComplaintData({ complaintId, message: '', attachments: [] });
+            }}
+            onClose={(complaintId) => onCloseComplaint(complaintId)}
+            actionLoading={actionLoading}
+          />
+          {popup?.type === 'evidence' && (
+            <EvidenceViewerPopup
+              attachments={popup.data}
+              onClose={() => setPopup(null)}
+            />
+          )}
+          {popup?.type === 'description' && (
+            <DescriptionViewerPopup
+              title={popup.title}
+              description={popup.data}
+              onClose={() => setPopup(null)}
+            />
+          )}
+          {popup?.type === 'justification' && (
+            <DescriptionViewerPopup
+              title="Owner Justification"
+              description={popup.data}
+              onClose={() => setPopup(null)}
+            />
           )}
         </div>
       </SlidingTabs>
     </div>
   );
 }
+
 
 function SeeComplaints({ complaints, onResolveComplaint, actionLoading }) {
   const [popup, setPopup] = useState(null);
@@ -564,20 +565,26 @@ function SeeComplaints({ complaints, onResolveComplaint, actionLoading }) {
             onChange={event => setResolution(current => ({ ...current, message: event.target.value }))}
             rows={5}
           />
-          <div style={{ border: `2px dashed ${C.border}`, borderRadius: 8, padding: '12px 16px', textAlign: 'center', marginBottom: 12 }}>
-            <span style={{ color: C.textLight, fontSize: 13, marginRight: 8 }}>📎 Attach Files</span>
-            <label style={{ ...BTN.outline, padding: '5px 14px', fontSize: 12, cursor: 'pointer', display: 'inline-block' }}>
-              <input
-                type="file"
-                multiple
-                style={{ display: 'none' }}
-                onChange={event => setResolution(current => ({ ...current, attachments: Array.from(event.target.files || []) }))}
-              />
-              Choose Files
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 8 }}>
+              Attach Evidence (Optional)
             </label>
+            <input
+              type="file"
+              multiple
+              accept="image/*,video/*"
+              onChange={event => setResolution(current => ({ ...current, attachments: Array.from(event.target.files || []) }))}
+              style={{ width: '100%', padding: '8px', border: `1px solid ${C.border}`, borderRadius: 8 }}
+            />
           </div>
-          <FilePreviewList files={resolution.attachments} title="Justification Attachments" />
-          <button onClick={handleSubmit} style={{ ...BTN.primary, width: '100%', padding: 11 }} disabled={actionLoading}>
+          <ImagePreviewGrid
+            files={resolution.attachments}
+            onRemove={(idx) => setResolution(current => ({
+              ...current,
+              attachments: current.attachments.filter((_, i) => i !== idx)
+            }))}
+          />
+          <button onClick={handleSubmit} style={{ ...BTN.primary, width: '100%', padding: 11, marginTop: 12 }} disabled={actionLoading}>
             {actionLoading ? 'Submitting...' : '📤 Submit Resolution'}
           </button>
         </Popup>
@@ -585,28 +592,27 @@ function SeeComplaints({ complaints, onResolveComplaint, actionLoading }) {
 
       <h2 style={{ color: C.text, fontWeight: 900, marginBottom: 20 }}>📋 See Complaints</h2>
 
-      {complaints.length === 0 ? (
-        <EmptyState icon="🔔" title="No complaints received" subtitle="Owner complaints addressed to you will show up here." />
-      ) : (
-        <TableWrap headers={['Complaint ID', 'User Name', 'Issue', 'Description', 'Action']}>
-          {complaints.map(complaint => (
-            <TR key={complaint.id}>
-              <TD><span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.primary }}>{String(complaint.id).slice(0, 8)}</span></TD>
-              <TD><span style={{ fontWeight: 600 }}>{complaint.complainantName}</span></TD>
-              <TD><span style={{ fontWeight: 700 }}>{complaint.title}</span></TD>
-              <TD style={{ whiteSpace: 'normal' }}><span style={{ fontSize: 12, color: C.textLight }}>{complaint.description}</span></TD>
-              <TD>
-                <button
-                  onClick={() => setPopup({ type: 'resolve', data: complaint })}
-                  style={{ background: `${C.primary}15`, color: C.primary, border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
-                  disabled={actionLoading || complaint.status === 'CLOSED'}
-                >
-                  ✓ Resolve
-                </button>
-              </TD>
-            </TR>
-          ))}
-        </TableWrap>
+      <ComplaintTable
+        complaints={complaints}
+        isOwner={true}
+        onViewEvidence={(attachments) => setPopup({ type: 'evidence', data: attachments })}
+        onViewDescription={(title, description) => setPopup({ type: 'description', title, data: description })}
+        onResolve={(complaintId) => setPopup({ type: 'resolve', data: { id: complaintId } })}
+        actionLoading={actionLoading}
+      />
+
+      {popup?.type === 'evidence' && (
+        <EvidenceViewerPopup
+          attachments={popup.data}
+          onClose={() => setPopup(null)}
+        />
+      )}
+      {popup?.type === 'description' && (
+        <DescriptionViewerPopup
+          title={popup.title}
+          description={popup.data}
+          onClose={() => setPopup(null)}
+        />
       )}
     </div>
   );
@@ -615,37 +621,72 @@ function SeeComplaints({ complaints, onResolveComplaint, actionLoading }) {
 export default function StudentDashboardLive({ user, setUser, navigate }) {
   const [page, setPage] = useState('dashboard');
   const [collapsed, setCollapsed] = useState(false);
-  const [pageLoading, setPageLoading] = useState(true);
-  const [pageError, setPageError] = useState('');
   const [actionError, setActionError] = useState('');
+  const [selectedRoom, setSelectedRoom] = useState(null);
+  const [roomReviews, setRoomReviews] = useState([]);
   const [actionLoading, setActionLoading] = useState(false);
-  const [profile, setProfile] = useState(null);
   const [recommendedRooms, setRecommendedRooms] = useState([]);
-  const [bookingRequests, setBookingRequests] = useState([]);
-  const [currentStay, setCurrentStay] = useState(null);
-  const [payments, setPayments] = useState([]);
-  const [cancelRequests, setCancelRequests] = useState([]);
-  const [filedComplaints, setFiledComplaints] = useState([]);
-  const [receivedComplaints, setReceivedComplaints] = useState([]);
-  const [verificationHistory, setVerificationHistory] = useState([]);
-  const [verificationResult, setVerificationResult] = useState(null);
   const [feedback, setFeedback] = useState({ text: '', rating: 0 });
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [editPopup, setEditPopup] = useState(false);
   const [editPwdGate, setEditPwdGate] = useState('');
   const [editPwdErr, setEditPwdErr] = useState('');
   const [editPwdConfirmed, setEditPwdConfirmed] = useState(false);
-  const [editForm, setEditForm] = useState({ fullName: '', email: '', mobile: '', collegeName: '', enrollNo: '', location: '', password: '', confirmPassword: '', photo: null });
+  const [editForm, setEditForm] = useState({ fullName: '', email: '', mobile: '', collegeName: '', enrollNo: '', location: '', gender: '', password: '', confirmPassword: '', photo: null, existingPhotoUrl: null });
   const [deletePopup, setDeletePopup] = useState(false);
   const [pwdVerify, setPwdVerify] = useState('');
   const [verifyStep, setVerifyStep] = useState(0);
   const [verifyFiles, setVerifyFiles] = useState({ liveImage: null, idCardImage: null });
   const [verifyConfirmed, setVerifyConfirmed] = useState(false);
+  const [verificationResult, setVerificationResult] = useState(null);
+  const [optimisticBookings, setOptimisticBookings] = useState({ removed: new Set() });
+  const [optimisticCancelRequests, setOptimisticCancelRequests] = useState([]);
+  const [optimisticComplaints, setOptimisticComplaints] = useState(new Map());
+  const [successToast, setSuccessToast] = useState(null);
   const notifRef = useRef(null);
+
+  const showToast = (msg) => {
+    setSuccessToast(msg);
+    setTimeout(() => setSuccessToast(null), 2500);
+  };
+
+  // Use the new dashboard data hook
+  const { data, loading: pageLoading, error: pageError, refresh, mutateData } = useDashboardData('student');
+  const profile = useMemo(() => data.profile || {}, [data.profile]);
+  const bookingRequests = useMemo(() => 
+    (data.bookingRequests || []).filter(b => !optimisticBookings.removed.has(b.id)),
+    [data.bookingRequests, optimisticBookings.removed]
+  );
+  const currentStay = data.currentStay;
+  const payments = data.payments || [];
+  const cancelRequests = [...optimisticCancelRequests, ...(data.cancelRequests || [])];
+  const filedComplaints = useMemo(() => 
+    (data.filedComplaints || []).map(c =>
+      optimisticComplaints.has(c.id) ? { ...c, ...optimisticComplaints.get(c.id) } : c
+    ),
+    [data.filedComplaints, optimisticComplaints]
+  );
+  const receivedComplaints = useMemo(() => 
+    (data.receivedComplaints || []).map(c =>
+      optimisticComplaints.has(c.id) ? { ...c, ...optimisticComplaints.get(c.id) } : c
+    ),
+    [data.receivedComplaints, optimisticComplaints]
+  );
+  const liveNotifications = data.notifications || [];
+  const rawVerificationHistory = data.verificationHistory || [];
+  
+  // Process verification history through prepareVerificationDisplay to get failedReasons
+  const verificationHistory = useMemo(
+    () => rawVerificationHistory.map(v => prepareVerificationDisplay(v)),
+    [rawVerificationHistory]
+  );
 
   const currentPayment = currentStay ? payments.find(payment => payment.activeStayId === currentStay.id) || payments[0] : null;
   const ownerComplaints = filedComplaints.filter(complaint => complaint.againstRoleCode === 'OWNER');
   const latestVerification = verificationResult || verificationHistory[0] || null;
+  const isFullyUnlocked = (profile?.completionPercentage || 0) >= 100;
+  const isMenuDisabled = key => !isFullyUnlocked && !['dashboard', 'profile', 'verify'].includes(key);
+  const isBlocked = user?.isBlocked || false;
 
   const syncUser = async () => {
     const refreshedUser = await bootstrapCurrentUser();
@@ -653,62 +694,153 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
     return refreshedUser;
   };
 
-  const loadDashboard = async () => {
-    setPageLoading(true);
-    setPageError('');
-    try {
-      const [profileResponse, requestsResponse, paymentsResponse, cancelResponse, filedResponse, receivedResponse, listingsResponse, historyResponse] = await Promise.all([
-        apiRequest('/api/profiles/student/me', { auth: true }),
-        apiRequest('/api/bookings/requests/me', { auth: true }),
-        apiRequest('/api/bookings/payments/me', { auth: true }),
-        apiRequest('/api/bookings/cancel-requests/me', { auth: true }),
-        apiRequest('/api/complaints/filed', { auth: true }),
-        apiRequest('/api/complaints/received', { auth: true }),
-        apiRequest('/api/listings', { query: { size: 3 } }),
-        apiRequest('/api/verifications/me/history', { auth: true }),
-      ]);
+  useEffect(() => {
+    if (!user || user.role !== 'student') {
+      return;
+    }
 
-      let activeStayResponse = null;
-      try {
-        activeStayResponse = await apiRequest('/api/bookings/active/me', { auth: true });
-      } catch (error) {
-        if (!/No active stay found/i.test(error.message)) {
-          throw error;
-        }
+    const unsubscribe = addWebSocketListener((topic, payload) => {
+      if (topic !== 'user' && topic !== 'role' && topic !== 'global') {
+        return;
       }
 
-      setProfile(profileResponse);
-      setBookingRequests(requestsResponse || []);
-      setCurrentStay(activeStayResponse);
-      setPayments(paymentsResponse || []);
-      setCancelRequests(cancelResponse || []);
-      setFiledComplaints(filedResponse || []);
-      setReceivedComplaints(receivedResponse || []);
-      setRecommendedRooms((listingsResponse?.items || []).map(mapListingToRoom));
-      setVerificationHistory((historyResponse || []).map(prepareVerificationDisplay));
+      mutateData(current => applyRealtimeDashboardEvent('student', current, topic, payload));
+    });
+
+    return () => unsubscribe();
+  }, [user, mutateData]);
+
+  // Load recommended rooms - use stable IDs instead of object references
+  const profileUserCode = profile?.userCode;
+  const profileLocation = profile?.currentLocation;
+  const profileGender = profile?.gender;
+  const bookingRequestIds = useMemo(() => 
+    bookingRequests.map(item => item.listingId).join(','), 
+    [bookingRequests]
+  );
+  const currentStayListingId = currentStay?.listingId;
+
+  useEffect(() => {
+    if (!profileUserCode) {
+      return;
+    }
+    
+    const loadRecommendations = async () => {
+      try {
+        // Fetch more rooms to ensure we have enough after filtering
+        const listingsResponse = await apiRequest('/api/listings', { query: { size: 20 } });
+        
+        // Create set of listing IDs to exclude (already booked or current stay)
+        const blockedListingIds = new Set([
+          ...bookingRequestIds.split(',').filter(Boolean),
+          currentStayListingId,
+        ].filter(Boolean));
+        
+        // Filter and map rooms
+        const availableRooms = (listingsResponse?.items || [])
+          .map(mapListingToRoom)
+          .filter(room => {
+            // Exclude already booked or current stay rooms
+            if (blockedListingIds.has(room.id)) {
+              return false;
+            }
+            
+            // If student has a location, show only rooms from that city
+            if (profileLocation) {
+              // City-based match: check if room location contains student's city
+              const studentCity = profileLocation.trim().toLowerCase();
+              const roomLocation = (room.location || '').trim().toLowerCase();
+              if (!roomLocation.includes(studentCity)) {
+                return false;
+              }
+            }
+            
+            // Gender-based filtering: Male students see Male + Both, Female students see Female + Both
+            if (profileGender) {
+              const studentGender = profileGender.toUpperCase();
+              const roomCategory = (room.category || '').toUpperCase();
+              
+              // If room is for Both genders, always show it
+              if (roomCategory === 'BOTH') {
+                return true;
+              }
+              
+              // Otherwise, room gender must match student gender
+              if (studentGender === 'MALE' && roomCategory !== 'MALE') {
+                return false;
+              }
+              if (studentGender === 'FEMALE' && roomCategory !== 'FEMALE') {
+                return false;
+              }
+            }
+            
+            return true;
+          });
+        
+        // Sort by rating (highest first), then by ID for consistency
+        const sortedRooms = availableRooms.sort((a, b) => {
+          // First sort by rating (descending)
+          if (b.rating !== a.rating) {
+            return b.rating - a.rating;
+          }
+          // If ratings are equal, sort by ID for consistency
+          return a.id.localeCompare(b.id);
+        });
+        
+        // Take top 3 rooms
+        const topRooms = sortedRooms.slice(0, 3);
+        
+        setRecommendedRooms(topRooms);
+      } catch (error) {
+        console.error('Failed to load recommendations:', error);
+        setRecommendedRooms([]);
+      }
+    };
+    loadRecommendations();
+  }, [profileUserCode, profileLocation, profileGender, bookingRequestIds, currentStayListingId]);
+
+  // Fetch reviews when a room is selected
+  useEffect(() => {
+    if (!selectedRoom) {
+      setRoomReviews([]);
+      return;
+    }
+    
+    let active = true;
+    apiRequest(`/api/public/listings/${selectedRoom.id}/reviews`)
+      .then(items => {
+        if (active) {
+          setRoomReviews(items || []);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setRoomReviews([]);
+        }
+      });
+    
+    return () => {
+      active = false;
+    };
+  }, [selectedRoom]);
+
+  // Initialize edit form when profile loads
+  useEffect(() => {
+    if (profile) {
       setEditForm({
-        fullName: profileResponse.displayName || '',
-        email: profileResponse.email || '',
-        mobile: profileResponse.mobileNumber || '',
-        collegeName: profileResponse.collegeName || '',
-        enrollNo: profileResponse.enrollmentNumber || profileResponse.prn || '',
-        location: profileResponse.currentLocation || '',
+        fullName: profile.displayName || '',
+        email: profile.email || '',
+        mobile: profile.mobileNumber || '',
+        collegeName: profile.collegeName || '',
+        enrollNo: profile.enrollmentNumber || profile.prn || '',
+        location: profile.currentLocation || '',
+        gender: profile.gender || '',
         password: '',
         confirmPassword: '',
         photo: null,
       });
-    } catch (error) {
-      setPageError(error.message);
-    } finally {
-      setPageLoading(false);
     }
-  };
-
-  useEffect(() => {
-    if (user?.role === 'student') {
-      loadDashboard();
-    }
-  }, [user]);
+  }, [profile]);
 
   if (!user || user.role !== 'student') {
     return (
@@ -751,9 +883,11 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
       collegeName: profile?.collegeName || '',
       enrollNo: profile?.enrollmentNumber || profile?.prn || '',
       location: profile?.currentLocation || '',
+      gender: profile?.gender || '',
       password: '',
       confirmPassword: '',
       photo: null,
+      existingPhotoUrl: profile?.profilePhotoUrl || null,
     });
     setEditPopup(true);
   };
@@ -778,27 +912,32 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
     await performAction(async () => {
       let photoPayload = {};
       if (editForm.photo) {
+        // New photo uploaded - upload it
         const uploaded = await uploadMedia(editForm.photo, 'profile-photo');
         photoPayload = {
           profilePhotoUrl: uploaded.url,
           profilePhotoPublicId: uploaded.publicId,
         };
+      } else if (editForm.existingPhotoUrl) {
+        // No new photo, but keep existing photo
+        photoPayload = {
+          profilePhotoUrl: editForm.existingPhotoUrl,
+          profilePhotoPublicId: profile?.profilePhotoPublicId || undefined,
+        };
       }
+      // If both are null, photo will be removed (user clicked X to remove)
 
-      await apiRequest('/api/profiles/student/me', {
-        method: 'PUT',
-        auth: true,
-        body: {
-          displayName: editForm.fullName,
-          email: editForm.email,
-          mobileNumber: editForm.mobile,
-          collegeName: editForm.collegeName,
-          prn: editForm.enrollNo,
-          enrollmentNumber: editForm.enrollNo,
-          currentLocation: editForm.location,
-          ...photoPayload,
-        },
-      });
+      await apiWithRefresh.updateProfile({
+        displayName: editForm.fullName,
+        email: editForm.email,
+        mobileNumber: editForm.mobile,
+        collegeName: editForm.collegeName,
+        prn: editForm.enrollNo,
+        enrollmentNumber: editForm.enrollNo,
+        currentLocation: editForm.location,
+        gender: editForm.gender || null,
+        ...photoPayload,
+      }, 'STUDENT');
 
       if (editForm.password) {
         await apiRequest('/api/users/me/password', {
@@ -812,7 +951,8 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
         });
       }
 
-      await Promise.all([loadDashboard(), syncUser()]);
+      await syncUser();
+      showToast('Profile saved successfully! ✓');
       setEditPopup(false);
       setEditPwdGate('');
       setEditPwdErr('');
@@ -859,9 +999,9 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
       });
       const normalizedResult = prepareVerificationDisplay(result);
       setVerificationResult(normalizedResult);
-      setVerificationHistory(current => [normalizedResult, ...current.filter(item => item.verificationId !== normalizedResult.verificationId)]);
       await syncUser();
-      await loadDashboard();
+      await refresh();
+      showToast('Verification complete! ✓');
       setVerifyStep(3);
     } catch (error) {
       setActionError(error.message);
@@ -874,120 +1014,219 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
     }
   };
 
-  const handlePlatformFeedback = async () => {
-    await performAction(async () => {
-      await apiRequest('/api/feedbacks/me', {
-        method: 'POST',
-        auth: true,
-        body: {
+  const handlePlatformFeedback = () => {
+    // 1. Reset form and show sent state immediately
+    setFeedbackSent(true);
+    const previousFeedback = { ...feedback };
+    setFeedback({ text: '', rating: 0 });
+    showToast('Feedback submitted! ✓');
+
+    // 2. API in background
+    (async () => {
+      try {
+        await apiWithRefresh.submitFeedback({
           feedbackScope: 'PLATFORM',
-          rating: feedback.rating,
-          message: feedback.text,
+          rating: previousFeedback.rating,
+          message: previousFeedback.text,
           location: profile?.currentLocation || '',
-        },
-      });
-      setFeedbackSent(true);
-      setFeedback({ text: '', rating: 0 });
-    });
+        });
+      } catch (e) {
+        // Revert the form if submission fails
+        setFeedbackSent(false);
+        setFeedback(previousFeedback);
+        setActionError(`Failed to submit feedback: ${e.message}`);
+      }
+    })();
   };
 
-  const handleOwnerFeedback = async ({ rating, text }) => {
-    await performAction(async () => {
-      if (!currentStay?.ownerUserCode) {
-        throw new Error('Owner details are not available for feedback yet.');
-      }
-      await apiRequest('/api/feedbacks/me', {
-        method: 'POST',
-        auth: true,
-        body: {
-          feedbackScope: 'OWNER',
+  const handleOwnerFeedback = ({ rating, text }) => {
+    if (!currentStay?.ownerUserCode) {
+      setActionError('Owner details are not available for feedback yet.');
+      return;
+    }
+
+    // 1. Confirm immediately
+    showToast('Owner feedback submitted! ✓');
+
+    // 2. API in background
+    (async () => {
+      try {
+        await apiWithRefresh.submitFeedback({
+          feedbackScope: 'LISTING',
           rating,
           message: text,
-          location: currentStay.listingLocation || profile?.currentLocation || '',
+          location: currentStay.listingId,
           targetUserCode: currentStay.ownerUserCode,
-        },
-      });
-    });
+        });
+      } catch (e) {
+        setActionError(`Failed to submit feedback: ${e.message}`);
+      }
+    })();
   };
 
-  const handleRevokeRequest = async (requestId) => {
-    await performAction(async () => {
-      await apiRequest(`/api/bookings/requests/${requestId}/revoke`, { method: 'PATCH', auth: true });
-      await loadDashboard();
-    });
+  const handleRevokeRequest = (requestId) => {
+    // 1. Remove the request row immediately
+    setOptimisticBookings(curr => ({
+      ...curr,
+      removed: new Set([...curr.removed, requestId])
+    }));
+    showToast('Booking request revoked! ✓');
+
+    // 2. API in background
+    (async () => {
+      try {
+        await apiWithRefresh.revokeBooking(requestId);
+        await refresh();
+      } catch (e) {
+        // Revert: put the request back in view
+        setOptimisticBookings(curr => {
+          const newRemoved = new Set(curr.removed);
+          newRemoved.delete(requestId);
+          return { ...curr, removed: newRemoved };
+        });
+        setActionError(`Failed to revoke booking: ${e.message}`);
+      }
+    })();
   };
 
-  const handleCreateComplaint = async ({ title, description, attachments }) => {
+  const handleCreateComplaint = ({ title, description, attachments }) => {
     if (!currentStay?.ownerUserCode) {
-      throw new Error('Owner details are not available for complaints yet.');
+      setActionError('Owner details are not available for complaints yet.');
+      return;
     }
-    await performAction(async () => {
-      await apiRequest('/api/complaints', {
-        method: 'POST',
-        auth: true,
-        isFormData: true,
-        body: createMultipartForm({
-          againstUserCode: currentStay.ownerUserCode,
-          title,
-          description,
-          relatedStayId: currentStay.id,
-          relatedListingId: currentStay.listingId,
-          attachments,
-        }),
-      });
-      await loadDashboard();
-    });
+
+    // 1. Close the form / show confirmation immediately
+    showToast('Complaint submitted! ✓');
+
+    // 2. API in background
+    (async () => {
+      try {
+        await apiRequest('/api/complaints', {
+          method: 'POST',
+          auth: true,
+          isFormData: true,
+          body: createMultipartForm({
+            againstUserCode: currentStay.ownerUserCode,
+            title,
+            description,
+            relatedStayId: currentStay.id,
+            relatedListingId: currentStay.listingId,
+            attachments,
+          }),
+        });
+        await refresh();
+      } catch (e) {
+        setActionError(`Failed to submit complaint: ${e.message}`);
+      }
+    })();
   };
 
-  const handleCreateCancelRequest = async (reason) => {
+  const handleCreateCancelRequest = (reason) => {
     if (!currentStay?.id) {
-      throw new Error('You do not have an active stay to cancel.');
+      setActionError('You do not have an active stay to cancel.');
+      return;
     }
-    await performAction(async () => {
-      await apiRequest(`/api/bookings/active/${currentStay.id}/cancel-requests`, {
-        method: 'POST',
-        auth: true,
-        body: { reason },
-      });
-      await loadDashboard();
-    });
+
+    // 1. Add a pending cancel request entry immediately
+    const tempId = `temp-${Date.now()}`;
+    const optimisticEntry = {
+      id: tempId,
+      activeStayId: currentStay.id,
+      reason,
+      status: 'PENDING',
+      isOptimistic: true,
+      createdAt: new Date().toISOString(),
+    };
+    setOptimisticCancelRequests(curr => [optimisticEntry, ...curr]);
+    showToast('Cancel request submitted! ✓');
+
+    // 2. API in background
+    (async () => {
+      try {
+        await apiWithRefresh.createCancelRequest(currentStay.id, reason);
+        await refresh();
+        // Clear optimistic entry after refresh brings real data
+        setOptimisticCancelRequests(curr => curr.filter(r => r.id !== tempId));
+      } catch (e) {
+        // Revert: remove the optimistic entry
+        setOptimisticCancelRequests(curr => curr.filter(r => r.id !== tempId));
+        setActionError(`Failed to submit cancel request: ${e.message}`);
+      }
+    })();
   };
 
-  const handleCloseComplaint = async (complaintId) => {
-    await performAction(async () => {
-      await apiRequest(`/api/complaints/${complaintId}/close`, {
-        method: 'PATCH',
-        auth: true,
-      });
-      await loadDashboard();
-    });
+  const handleCloseComplaint = (complaintId) => {
+    // 1. Update status badge immediately
+    setOptimisticComplaints(curr => new Map(curr).set(complaintId, { status: 'CLOSED' }));
+    showToast('Complaint closed! ✓');
+
+    // 2. API in background
+    (async () => {
+      try {
+        await apiWithRefresh.closeComplaint(complaintId);
+        await refresh();
+        setOptimisticComplaints(curr => { const m = new Map(curr); m.delete(complaintId); return m; });
+      } catch (e) {
+        setOptimisticComplaints(curr => { const m = new Map(curr); m.delete(complaintId); return m; });
+        setActionError(`Failed to close complaint: ${e.message}`);
+      }
+    })();
   };
 
-  const handleReopenComplaint = async (complaintId, message, attachments) => {
-    await performAction(async () => {
-      await apiRequest(`/api/complaints/${complaintId}/re-open`, {
-        method: 'POST',
-        auth: true,
-        isFormData: true,
-        body: createMultipartForm({ message, attachments }),
-      });
-      await loadDashboard();
-    });
+  const handleReopenComplaint = (complaintId, message, attachments) => {
+    // 1. Update status badge immediately
+    setOptimisticComplaints(curr => new Map(curr).set(complaintId, { status: 'OPEN' }));
+    showToast('Complaint reopened! ✓');
+
+    // 2. API in background
+    (async () => {
+      try {
+        await apiRequest(`/api/complaints/${complaintId}/re-open`, {
+          method: 'POST',
+          auth: true,
+          isFormData: true,
+          body: createMultipartForm({ message, attachments }),
+        });
+        await refresh();
+        setOptimisticComplaints(curr => { const m = new Map(curr); m.delete(complaintId); return m; });
+      } catch (e) {
+        setOptimisticComplaints(curr => { const m = new Map(curr); m.delete(complaintId); return m; });
+        setActionError(`Failed to reopen complaint: ${e.message}`);
+      }
+    })();
   };
 
-  const handleResolveComplaint = async (complaintId, message, attachments) => {
-    await performAction(async () => {
-      await apiRequest(`/api/complaints/${complaintId}/justify`, {
-        method: 'POST',
-        auth: true,
-        isFormData: true,
-        body: createMultipartForm({ message, attachments }),
-      });
-      await loadDashboard();
-    });
+  const handleResolveComplaint = (complaintId, message, attachments) => {
+    setOptimisticComplaints(curr => new Map(curr).set(complaintId, { status: 'RESOLVED' }));
+    showToast('Complaint resolved! ✓');
+    
+    (async () => {
+      try {
+        await apiRequest(`/api/complaints/${complaintId}/justify`, {
+          method: 'POST',
+          auth: true,
+          isFormData: true,
+          body: createMultipartForm({ message, attachments }),
+        });
+        await refresh();
+        setOptimisticComplaints(curr => {
+          const m = new Map(curr);
+          m.delete(complaintId);
+          return m;
+        });
+      } catch (e) {
+        setOptimisticComplaints(curr => {
+          const m = new Map(curr);
+          m.delete(complaintId);
+          return m;
+        });
+        setActionError(`Failed to resolve complaint: ${e.message}`);
+      }
+    })();
   };
 
   const notifications = [
+    ...liveNotifications.map(item => `${item.title}: ${item.message}`),
     !profile?.profileComplete && 'Complete your profile to unlock verification and booking features.',
     profile?.profileComplete && !profile?.identityVerified && 'Your profile is complete. Finish identity verification to continue booking safely.',
     currentStay?.nextDueDate && `Your next rent due date is ${formatDate(currentStay.nextDueDate)}.`,
@@ -1004,8 +1243,156 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
     );
   }
 
+  // If a room is selected from recommendations, show room detail view
+  if (selectedRoom) {
+    return (
+      <div style={{ fontFamily: "'Segoe UI', sans-serif", background: C.bg, minHeight: '100vh' }}>
+        <div style={{ background: C.primary, padding: '0 24px' }}>
+          <div style={{ maxWidth: 1200, margin: '0 auto', height: 56, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button onClick={() => setSelectedRoom(null)} style={{ ...BTN.ghost, color: '#fff', fontSize: 20 }}>←</button>
+            <Logo white size={22} />
+          </div>
+        </div>
+        <div style={{ maxWidth: 900, margin: '0 auto', padding: '28px 24px' }}>
+          <div style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', border: `1px solid ${C.border}` }}>
+            <div style={{ height: 320, background: `linear-gradient(135deg, ${C.primary}22, ${C.secondary}33)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 100 }}>
+              {selectedRoom.images?.[0] && typeof selectedRoom.images[0] === 'string' && /^(https?:|blob:|data:)/i.test(selectedRoom.images[0]) ? (
+                <img src={selectedRoom.images[0]} alt={selectedRoom.title} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }} />
+              ) : (
+                <div>{selectedRoom.images?.[0] || '🏠'}</div>
+              )}
+            </div>
+            <div style={{ padding: 28 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+                <div>
+                  <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900, color: C.text }}>{selectedRoom.title}</h1>
+                  <div style={{ color: C.textLight, marginTop: 6, fontSize: 15 }}>📍 {selectedRoom.location}</div>
+                  <div style={{ marginTop: 8, display: 'inline-block', background: C.primary + '18', color: C.primary, borderRadius: 20, padding: '4px 12px', fontSize: 13, fontWeight: 600 }}>
+                    {selectedRoom.category}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ marginTop: 8 }}>
+                    <span style={{ fontSize: 28, fontWeight: 900, color: C.primary }}>₹{selectedRoom.rent.toLocaleString()}</span>
+                    <span style={{ color: C.textLight, fontSize: 13 }}>/month</span>
+                  </div>
+                </div>
+              </div>
+              <p style={{ color: C.text, lineHeight: 1.7, marginBottom: 20 }}>{selectedRoom.desc}</p>
+              <h3 style={{ color: C.text, marginBottom: 10 }}>🏷️ Amenities</h3>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+                {selectedRoom.amenities.map(a => (
+                  <div key={a} style={{ background: C.primary + '10', color: C.primary, borderRadius: 20, padding: '6px 14px', fontSize: 13, fontWeight: 600 }}>✓ {a}</div>
+                ))}
+              </div>
+              <h3 style={{ color: C.text, marginBottom: 10 }}>💬 Student Reviews</h3>
+              {roomReviews.length === 0 ? (
+                <div style={{ background: C.bg, borderRadius: 10, padding: 16, marginBottom: 24, border: `1px solid ${C.border}`, textAlign: 'center', color: C.textLight }}>
+                  No reviews yet
+                </div>
+              ) : (
+                <div style={{ marginBottom: 24 }}>
+                  {roomReviews.map((review, i) => (
+                    <div key={i} style={{ background: C.bg, borderRadius: 10, padding: 16, marginBottom: 10, border: `1px solid ${C.border}` }}>
+                      <div style={{ display: 'flex', gap: 10, marginBottom: 6 }}>
+                        {review.profilePhotoUrl ? (
+                          <img 
+                            src={review.profilePhotoUrl} 
+                            alt={review.displayName || 'Student'} 
+                            style={{ 
+                              width: 40, 
+                              height: 40, 
+                              borderRadius: '50%', 
+                              objectFit: 'cover',
+                              border: `2px solid ${C.border}`
+                            }} 
+                          />
+                        ) : (
+                          <div style={{ 
+                            width: 40, 
+                            height: 40, 
+                            borderRadius: '50%', 
+                            background: C.primary + '20',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 18,
+                            fontWeight: 700,
+                            color: C.primary,
+                            border: `2px solid ${C.border}`
+                          }}>
+                            {(review.displayName || review.name || 'S').charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>{review.displayName || review.name || 'Verified student'}</div>
+                          <StarRating rating={review.rating || 0} size={12} />
+                        </div>
+                      </div>
+                      <p style={{ color: C.textLight, fontSize: 13, margin: 0 }}>{review.message || review.text}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button 
+                onClick={async () => {
+                  setActionLoading(true);
+                  setActionError('');
+                  try {
+                    await apiRequest(`/api/bookings/listings/${selectedRoom.id}/requests`, {
+                      method: 'POST',
+                      auth: true,
+                      body: { message: `Booking request for ${selectedRoom.title}` },
+                    });
+                    showToast('Booking request submitted successfully');
+                    setSelectedRoom(null);
+                    refresh();
+                  } catch (error) {
+                    setActionError(error.message);
+                  } finally {
+                    setActionLoading(false);
+                  }
+                }}
+                disabled={actionLoading}
+                style={{ 
+                  ...BTN.primary, 
+                  padding: '13px 28px', 
+                  fontSize: 15, 
+                  opacity: actionLoading ? 0.5 : 1,
+                  cursor: actionLoading ? 'not-allowed' : 'pointer',
+                  width: '100%'
+                }}
+              >
+                {actionLoading ? 'Submitting...' : '📅 Book Room'}
+              </button>
+              {actionError && <div style={{ marginTop: 14, fontSize: 13, color: C.danger }}>{actionError}</div>}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ fontFamily: "'Segoe UI', sans-serif", minHeight: '100vh', background: C.bg, display: 'flex', flexDirection: 'column' }}>
+      <BlockedAccountBanner user={user} />
+      {successToast && (
+        <div style={{ 
+          position: 'fixed', 
+          bottom: 24, 
+          right: 24, 
+          background: '#16a34a',
+          color: '#fff', 
+          borderRadius: 10, 
+          padding: '10px 18px', 
+          fontWeight: 700,
+          fontSize: 14, 
+          zIndex: 9999, 
+          boxShadow: '0 4px 16px rgba(0,0,0,0.15)' 
+        }}>
+          {successToast}
+        </div>
+      )}
       {editPopup && (
         <Popup
           title="Edit Profile"
@@ -1022,12 +1409,21 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
               {editPwdErr && <div style={{ background: '#FEF2F2', color: C.danger, borderRadius: 8, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>{editPwdErr}</div>}
               <FInput label="Current Password" placeholder="Enter your current password" type="password" value={editPwdGate} onChange={event => setEditPwdGate(event.target.value)} />
               <button
-                onClick={() => {
-                  if (editPwdGate.trim()) {
+                onClick={async () => {
+                  if (!editPwdGate.trim()) {
+                    setEditPwdErr('Please enter your current password.');
+                    return;
+                  }
+                  try {
+                    await apiRequest('/api/users/me/verify-password', {
+                      method: 'PATCH',
+                      auth: true,
+                      body: { currentPassword: editPwdGate },
+                    });
                     setEditPwdConfirmed(true);
                     setEditPwdErr('');
-                  } else {
-                    setEditPwdErr('Please enter your current password.');
+                  } catch (error) {
+                    setEditPwdErr(error.message);
                   }
                 }}
                 style={{ ...BTN.primary, width: '100%', padding: 11 }}
@@ -1044,16 +1440,47 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
               <FInput label="College Name" placeholder="College name" value={editForm.collegeName} onChange={event => setEditForm(current => ({ ...current, collegeName: event.target.value }))} />
               <FInput label="College Enrollment Number" placeholder="Enrollment number" value={editForm.enrollNo} onChange={event => setEditForm(current => ({ ...current, enrollNo: event.target.value }))} />
               <FInput label="Current Location" placeholder="Current location" value={editForm.location} onChange={event => setEditForm(current => ({ ...current, location: event.target.value }))} />
+              
+              {/* Gender Selection */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 4 }}>Gender</label>
+                <select 
+                  value={editForm.gender} 
+                  onChange={event => setEditForm(current => ({ ...current, gender: event.target.value }))}
+                  style={{ 
+                    width: '100%', 
+                    padding: '10px 12px', 
+                    border: `1px solid ${C.border}`, 
+                    borderRadius: 8, 
+                    fontSize: 13, 
+                    outline: 'none', 
+                    boxSizing: 'border-box',
+                    background: '#fff'
+                  }}
+                >
+                  <option value="">Select Gender</option>
+                  <option value="MALE">Male</option>
+                  <option value="FEMALE">Female</option>
+                </select>
+              </div>
+              
               <FInput label="New Password" placeholder="Leave blank to keep current password" type="password" value={editForm.password} onChange={event => setEditForm(current => ({ ...current, password: event.target.value }))} />
               <FInput label="Confirm Password" placeholder="Confirm password" type="password" value={editForm.confirmPassword} onChange={event => setEditForm(current => ({ ...current, confirmPassword: event.target.value }))} />
               <PasswordRequirements password={editForm.password} />
               <div style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 4 }}>Profile Photo Upload</label>
-                <div style={{ border: `2px dashed ${C.border}`, borderRadius: 8, padding: '12px', textAlign: 'center' }}>
-                  <input type="file" accept="image/*" onChange={event => setEditForm(current => ({ ...current, photo: event.target.files?.[0] || null }))} style={{ width: '100%', fontSize: 12 }} />
-                </div>
-                <FilePreviewList files={editForm.photo ? [editForm.photo] : []} title="Profile Photo Preview" />
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: C.textLight, marginBottom: 8 }}>Profile Photo Upload</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={event => setEditForm(current => ({ ...current, photo: event.target.files?.[0] || null }))}
+                  style={{ width: '100%', padding: '8px', border: `1px solid ${C.border}`, borderRadius: 8 }}
+                />
               </div>
+              <ProfilePhotoPreview
+                file={editForm.photo}
+                url={!editForm.photo ? editForm.existingPhotoUrl : null}
+                onRemove={() => setEditForm(current => ({ ...current, photo: null, existingPhotoUrl: null }))}
+              />
               <button onClick={handleSaveProfile} style={{ ...BTN.primary, width: '100%', padding: 11 }} disabled={actionLoading}>
                 {actionLoading ? 'Saving...' : '💾 Save Changes'}
               </button>
@@ -1083,19 +1510,8 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
             <button onClick={() => setCollapsed(current => !current)} style={{ ...BTN.ghost, color: '#fff', fontSize: 18 }}>☰</button>
             <div onClick={() => navigate('home')} style={{ cursor: 'pointer' }}><Logo white size={22} /></div>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button onClick={() => navigate('home')} style={{ ...BTN.ghost, color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>🏠 Home</button>
-            <button
-              onClick={() => {
-                setPage('dashboard');
-                setTimeout(() => notifRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-              }}
-              title="Notifications"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 20, position: 'relative', padding: '4px 8px' }}
-            >
-              🔔{notifications.length > 0 && <span style={{ position: 'absolute', top: 2, right: 2, width: 8, height: 8, background: '#EF4444', borderRadius: '50%' }} />}
-            </button>
-            <button onClick={() => setPage('profile')} style={{ ...BTN.accent, padding: '6px 14px', fontSize: 13 }}>👤 {user?.name}</button>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+            <NotificationBell notifications={liveNotifications} refreshData={refresh} />
             <button onClick={signOut} style={{ ...BTN.ghost, color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>Logout</button>
           </div>
         </div>
@@ -1107,7 +1523,11 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
             {MENU.map(item => (
               <button
                 key={item.key}
-                onClick={() => (item.key === 'explore' ? navigate('explore') : setPage(item.key))}
+                onClick={() => {
+                  if (isMenuDisabled(item.key)) return;
+                  item.key === 'explore' ? navigate('explore') : setPage(item.key);
+                }}
+                disabled={isMenuDisabled(item.key)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1117,12 +1537,13 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
                   border: 'none',
                   background: page === item.key ? `${C.primary}15` : 'transparent',
                   color: page === item.key ? C.primary : C.text,
-                  cursor: 'pointer',
+                  cursor: isMenuDisabled(item.key) ? 'not-allowed' : 'pointer',
                   textAlign: 'left',
                   fontWeight: page === item.key ? 800 : 500,
                   fontSize: 14,
                   borderLeft: page === item.key ? `3px solid ${C.primary}` : '3px solid transparent',
                   transition: 'all 0.2s',
+                  opacity: isMenuDisabled(item.key) ? 0.45 : 1,
                 }}
               >
                 <span style={{ fontSize: 18, flexShrink: 0 }}>{item.icon}</span>
@@ -1142,7 +1563,39 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
                 <p style={{ margin: '6px 0 0', opacity: 0.85 }}>Student ID: <b>{profile?.userCode}</b></p>
               </div>
               <div ref={notifRef} style={{ background: '#fff', borderRadius: 12, padding: 20, marginBottom: 20, border: `1px solid ${C.border}` }}>
-                <h3 style={{ margin: '0 0 14px', fontWeight: 800 }}>🔔 Notifications</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <h3 style={{ margin: 0, fontWeight: 800 }}>🔔 Notifications</h3>
+                  {liveNotifications.length > 0 && (
+                    <button
+                      onClick={async () => {
+                        if (window.confirm('Are you sure you want to clear all notifications?')) {
+                          try {
+                            await apiRequest('/api/notifications/me/all', {
+                              method: 'DELETE',
+                              auth: true,
+                            });
+                            await refresh();
+                            showToast('All notifications cleared! ✓');
+                          } catch (error) {
+                            setActionError(error.message);
+                          }
+                        }
+                      }}
+                      style={{
+                        background: '#FEF2F2',
+                        color: C.danger,
+                        border: `1px solid ${C.danger}`,
+                        borderRadius: 6,
+                        padding: '6px 12px',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      🗑️ Clear All
+                    </button>
+                  )}
+                </div>
                 {notifications.length === 0 ? (
                   <div style={{ background: '#F0FFF4', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: C.success, fontWeight: 500 }}>Everything looks good right now.</div>
                 ) : (
@@ -1176,7 +1629,7 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
                 <h3 style={{ margin: '0 0 16px', fontWeight: 800 }}>⚡ Quick Actions</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px,1fr))', gap: 12 }}>
                   {MENU.map(item => (
-                    <button key={item.key} onClick={() => (item.key === 'explore' ? navigate('explore') : setPage(item.key))} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 10px', cursor: 'pointer', textAlign: 'center', transition: 'all 0.2s' }}>
+                    <button key={item.key} onClick={() => { if (isMenuDisabled(item.key)) return; item.key === 'explore' ? navigate('explore') : setPage(item.key); }} disabled={isMenuDisabled(item.key)} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 10px', cursor: isMenuDisabled(item.key) ? 'not-allowed' : 'pointer', textAlign: 'center', transition: 'all 0.2s', opacity: isMenuDisabled(item.key) ? 0.45 : 1 }}>
                       <div style={{ fontSize: 22, marginBottom: 5 }}>{item.icon}</div>
                       <div style={{ fontSize: 11, fontWeight: 700, color: C.text }}>{item.label}</div>
                     </button>
@@ -1185,7 +1638,7 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
               </div>
               <div style={{ background: '#fff', borderRadius: 12, padding: 20, border: `1px solid ${C.border}` }}>
                 <h3 style={{ margin: '0 0 16px', fontWeight: 800 }}>💡 Recommended for You</h3>
-                {recommendedRooms.length === 0 ? <EmptyState icon="🔍" title="No live rooms available yet" subtitle="Check back later for live listings." /> : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px,1fr))', gap: 14 }}>{recommendedRooms.map(room => <RoomCard key={room.id} room={room} onClick={() => navigate('explore')} />)}</div>}
+                {recommendedRooms.length === 0 ? <EmptyState icon="🔍" title="No live rooms available yet" subtitle="Check back later for live listings." /> : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px,1fr))', gap: 14 }}>{recommendedRooms.map(room => <RoomCard key={room.id} room={room} onClick={() => setSelectedRoom(room)} />)}</div>}
               </div>
             </div>
           )}
@@ -1220,6 +1673,7 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
                   ['College Name', profile?.collegeName],
                   ['College Enrollment No.', profile?.enrollmentNumber || profile?.prn],
                   ['Current Location', profile?.currentLocation],
+                  ['Gender', profile?.gender === 'MALE' ? 'Male' : profile?.gender === 'FEMALE' ? 'Female' : '-'],
                   ['Identity Verified', profile?.identityVerified ? 'Yes' : 'No'],
                 ].map(([label, value]) => (
                   <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: `1px solid ${C.border}` }}>
@@ -1246,7 +1700,7 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
               onCreateComplaint={handleCreateComplaint}
               onCreateCancelRequest={handleCreateCancelRequest}
               onCloseComplaint={handleCloseComplaint}
-              onReopenComplaint={handleReopenComplaint}
+              onReComplaint={handleReopenComplaint}
               onSubmitOwnerFeedback={handleOwnerFeedback}
               actionLoading={actionLoading}
             />
@@ -1276,10 +1730,49 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
                         <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={event => { setVerifyFiles(current => ({ ...current, idCardImage: event.target.files?.[0] || null })); setVerifyConfirmed(false); }} />
                       </label>
                     </div>
-                    <FilePreviewList files={[verifyFiles.liveImage, verifyFiles.idCardImage].filter(Boolean)} title="Verification Media Preview" />
+                    <ImagePreviewGrid
+                      files={[verifyFiles.liveImage, verifyFiles.idCardImage].filter(Boolean)}
+                      onRemove={(idx) => {
+                        if (idx === 0) setVerifyFiles(current => ({ ...current, liveImage: null }));
+                        else setVerifyFiles(current => ({ ...current, idCardImage: null }));
+                        setVerifyConfirmed(false);
+                      }}
+                    />
                     <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
-                      <button onClick={() => { if (!verifyFiles.liveImage || !verifyFiles.idCardImage) { setActionError('Please select both the live photo and the ID card image.'); return; } setVerifyConfirmed(true); setActionError(''); }} style={{ ...BTN.outline, flex: 1, minWidth: 180 }}>Confirm Selected Media</button>
-                      <button onClick={handlePerformVerification} disabled={!profile?.profileComplete} style={{ ...BTN.primary, flex: 1, minWidth: 180, opacity: profile?.profileComplete ? 1 : 0.5, cursor: profile?.profileComplete ? 'pointer' : 'not-allowed' }}>🤖 Perform AI Verification</button>
+                      <button
+                        onClick={() => {
+                          if (!verifyFiles.liveImage || !verifyFiles.idCardImage) {
+                            setActionError('Please select both the live photo and the ID card image.');
+                            setVerifyConfirmed(false);
+                            return;
+                          }
+                          setVerifyConfirmed(true);
+                          setActionError('');
+                        }}
+                        style={{
+                          ...BTN.outline,
+                          flex: 1,
+                          minWidth: 180,
+                          borderColor: verifyConfirmed ? C.success : C.danger,
+                          color: verifyConfirmed ? C.success : C.danger,
+                          background: verifyConfirmed ? '#F0FFF4' : '#FEF2F2'
+                        }}
+                      >
+                        Confirm Selected Media
+                      </button>
+                      <button
+                        onClick={handlePerformVerification}
+                        disabled={!profile?.profileComplete}
+                        style={{
+                          ...BTN.primary,
+                          flex: 1,
+                          minWidth: 180,
+                          opacity: profile?.profileComplete ? 1 : 0.5,
+                          cursor: profile?.profileComplete ? 'pointer' : 'not-allowed'
+                        }}
+                      >
+                        🤖 Perform AI Verification
+                      </button>
                     </div>
                   </>
                 )}
@@ -1287,7 +1780,13 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
                   <div style={{ textAlign: 'center', padding: 24 }}>
                     <div style={{ fontSize: 48, display: 'inline-block', animation: 'spin 1s linear infinite', marginBottom: 12 }}>🔄</div>
                     <div style={{ fontWeight: 700, color: C.text, marginBottom: 4 }}>AI Verification in progress...</div>
-                    <div style={{ color: C.textLight, fontSize: 13, marginBottom: 20 }}>Analyzing your live photo and ID card.</div>
+                    <div style={{ color: C.textLight, fontSize: 13, marginBottom: 20 }}>
+                      <div style={{ marginBottom: 8 }}>🔍 Scanning face...</div>
+                      <div style={{ marginBottom: 8 }}>🎓 Matching face with student ID card...</div>
+                      <div style={{ marginBottom: 8 }}>📊 Decoding barcode...</div>
+                      <div style={{ marginBottom: 8 }}>🔢 Matching college PRN number with student ID card...</div>
+                      <div>🏫 Matching college name with student ID card...</div>
+                    </div>
                   </div>
                 )}
               </div>

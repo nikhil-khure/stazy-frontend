@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { C, BTN } from '../constants/theme';
 import { TEAM } from '../data/siteContent';
 import { Logo, MiniFooter } from '../components/shared/SharedComponents';
@@ -8,6 +8,144 @@ import { apiRequest, createMultipartForm, createSessionFromTokenResponse } from 
 import { saveSession } from '../services/session';
 import { getDashboardPageForUser } from '../utils/dashboardRouting';
 import { validatePassword } from '../utils/passwordRules';
+
+const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || '';
+const FACEBOOK_APP_ID = process.env.REACT_APP_FACEBOOK_APP_ID || '';
+
+function loadExternalScript(src, id) {
+  return new Promise((resolve, reject) => {
+    const existing = document.getElementById(id);
+    if (existing) {
+      resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = id;
+    script.src = src;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Unable to load social login provider.'));
+    document.body.appendChild(script);
+  });
+}
+
+function OAuthButtons({ role, mode, onAuthSuccess, onError }) {
+  const [loadingProvider, setLoadingProvider] = useState('');
+
+  useEffect(() => {
+    if (GOOGLE_CLIENT_ID) {
+      loadExternalScript('https://accounts.google.com/gsi/client', 'stazy-google-oauth').catch(() => {});
+    }
+    if (FACEBOOK_APP_ID) {
+      loadExternalScript('https://connect.facebook.net/en_US/sdk.js', 'stazy-facebook-oauth').then(() => {
+        if (window.FB) {
+          window.FB.init({
+            appId: FACEBOOK_APP_ID,
+            cookie: true,
+            xfbml: false,
+            version: 'v22.0',
+          });
+        }
+      }).catch(() => {});
+    }
+  }, []);
+
+  const authenticate = async (provider, credential) => {
+    const response = await apiRequest('/api/auth/oauth', {
+      method: 'POST',
+      body: {
+        provider,
+        role: role === 'student' ? 'STUDENT' : 'OWNER',
+        credential,
+        mode,
+      },
+    });
+    const session = createSessionFromTokenResponse(response);
+    saveSession(session);
+    onAuthSuccess(session);
+  };
+
+  const handleGoogle = async () => {
+    if (!GOOGLE_CLIENT_ID) {
+      onError('Google login is not configured yet. Add REACT_APP_GOOGLE_CLIENT_ID.');
+      return;
+    }
+    setLoadingProvider('google');
+    try {
+      await loadExternalScript('https://accounts.google.com/gsi/client', 'stazy-google-oauth');
+      const credential = await new Promise((resolve, reject) => {
+        if (!window.google?.accounts?.id) {
+          reject(new Error('Google login is unavailable right now.'));
+          return;
+        }
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: response => resolve(response.credential),
+        });
+        window.google.accounts.id.prompt(notification => {
+          if (notification.isNotDisplayed?.() || notification.isSkippedMoment?.()) {
+            window.google.accounts.id.renderButton(document.createElement('div'), { theme: 'outline', size: 'large' });
+          }
+        });
+        window.google.accounts.id.prompt();
+      });
+      await authenticate('GOOGLE', credential);
+    } catch (error) {
+      onError(error.message || 'Google authentication failed.');
+    } finally {
+      setLoadingProvider('');
+    }
+  };
+
+  const handleFacebook = async () => {
+    if (!FACEBOOK_APP_ID) {
+      onError('Facebook login is not configured yet. Add REACT_APP_FACEBOOK_APP_ID.');
+      return;
+    }
+    setLoadingProvider('facebook');
+    try {
+      await loadExternalScript('https://connect.facebook.net/en_US/sdk.js', 'stazy-facebook-oauth');
+      if (window.FB) {
+        window.FB.init({
+          appId: FACEBOOK_APP_ID,
+          cookie: true,
+          xfbml: false,
+          version: 'v22.0',
+        });
+      }
+      const accessToken = await new Promise((resolve, reject) => {
+        if (!window.FB) {
+          reject(new Error('Facebook login is unavailable right now.'));
+          return;
+        }
+        window.FB.login(response => {
+          if (!response?.authResponse?.accessToken) {
+            reject(new Error('Facebook authentication was cancelled.'));
+            return;
+          }
+          resolve(response.authResponse.accessToken);
+        }, { scope: 'public_profile,email' });
+      });
+      await authenticate('FACEBOOK', accessToken);
+    } catch (error) {
+      onError(error.message || 'Facebook authentication failed.');
+    } finally {
+      setLoadingProvider('');
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', gap: 10 }}>
+      <button onClick={handleGoogle} disabled={!!loadingProvider} style={{ flex: 1, background: '#F9FAFB', border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 0', fontWeight: 700, fontSize: 13, cursor: 'pointer', color: C.text }}>
+        {loadingProvider === 'google' ? 'Connecting...' : 'Google'}
+      </button>
+      <button onClick={handleFacebook} disabled={!!loadingProvider} style={{ flex: 1, background: '#F9FAFB', border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 0', fontWeight: 700, fontSize: 13, cursor: 'pointer', color: C.text }}>
+        {loadingProvider === 'facebook' ? 'Connecting...' : 'Facebook'}
+      </button>
+    </div>
+  );
+}
 
 // ─── ABOUT PAGE ───────────────────────────────────────────────────────────────
 export function AboutPage({ navigate }) {
@@ -53,23 +191,12 @@ export function AboutPage({ navigate }) {
           </div>
         </div>
       </div>
-      <div style={{ background: C.bg, padding: '50px 24px' }}>
-        <div style={{ maxWidth: 900, margin: '0 auto' }}>
-          <h2 style={{ color: C.text, fontSize: 28, fontWeight: 900, textAlign: 'center', marginBottom: 32 }}>👥 Meet Our Team</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px,1fr))', gap: 20 }}>
-            {TEAM.map((m, i) => (
-              <div key={i} style={{ background: '#fff', borderRadius: 14, padding: 24, textAlign: 'center', border: `1px solid ${C.border}` }}>
-                <div style={{ fontSize: 52, marginBottom: 8 }}>{m.avatar}</div>
-                <div style={{ fontWeight: 800, color: C.text, marginBottom: 4 }}>{m.name}</div>
-                <div style={{ color: C.secondary, fontSize: 13, fontWeight: 600 }}>{m.role}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
       <div style={{ background: '#fff', padding: '50px 24px' }}>
         <div style={{ maxWidth: 560, margin: '0 auto' }}>
-          <h2 style={{ color: C.text, fontSize: 24, fontWeight: 900, marginBottom: 24, textAlign: 'center' }}>📩 Get in Touch</h2>
+          <div style={{ textAlign: 'center', marginBottom: 28 }}>
+            <h2 style={{ color: C.text, fontSize: 28, fontWeight: 900, margin: '0 0 8px' }}>💬 Feedback Box</h2>
+            <p style={{ color: C.textLight, fontSize: 15, margin: 0, fontStyle: 'italic' }}>Your suggestions matter a lot</p>
+          </div>
           {sent ? (
             <div style={{ background: '#F0FFF4', border: `1px solid #00875A`, borderRadius: 12, padding: 32, textAlign: 'center' }}>
               <div style={{ fontSize: 36, marginBottom: 8 }}>✅</div>
@@ -89,7 +216,7 @@ export function AboutPage({ navigate }) {
                 }
                 setSubmitting(true);
                 try {
-                  await apiRequest('/api/public/contact', {
+                  await apiRequest('/api/public/feedback', {
                     method: 'POST',
                     body: {
                       fullName: form.name,
@@ -182,14 +309,6 @@ export function LoginPage({ navigate, setUser }) {
           <button onClick={handleLogin} style={{ ...BTN.primary, width: '100%', padding: 13, fontSize: 15, marginBottom: 14 }}>
             {loading ? 'Signing In...' : 'Sign In'}
           </button>
-          <div style={{ textAlign: 'center', marginBottom: 14 }}>
-            <span style={{ color: C.textLight, fontSize: 13 }}>— or continue with —</span>
-          </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            {['🔵 Google','🔷 Facebook'].map(s => (
-              <button key={s} style={{ flex: 1, background: '#F9FAFB', border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 0', fontWeight: 700, fontSize: 13, cursor: 'pointer', color: C.text }}>{s}</button>
-            ))}
-          </div>
           <div style={{ textAlign: 'center', marginTop: 18, fontSize: 13, color: C.textLight }}>
             Don't have an account?{' '}
             <span onClick={() => navigate('signup')} style={{ color: C.secondary, fontWeight: 700, cursor: 'pointer' }}>Sign Up</span>
@@ -290,14 +409,6 @@ export function SignupPage({ navigate, setUser }) {
           <button onClick={handleSignup} style={{ ...BTN.primary, width:'100%', padding:13, fontSize:15, marginTop:4, marginBottom:14 }}>
             {loading ? 'Creating Account...' : 'Create Account 🚀'}
           </button>
-          <div style={{ textAlign: 'center', marginBottom: 14 }}>
-            <span style={{ color: C.textLight, fontSize: 13 }}>— or sign up with —</span>
-          </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            {['🔵 Google','🔷 Facebook'].map(s => (
-              <button key={s} style={{ flex: 1, background: '#F9FAFB', border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 0', fontWeight: 700, fontSize: 13, cursor: 'pointer', color: C.text }}>{s}</button>
-            ))}
-          </div>
           <div style={{ textAlign: 'center', marginTop: 18, fontSize: 13, color: C.textLight }}>
             Already have an account?{' '}
             <span onClick={() => navigate('login')} style={{ color: C.secondary, fontWeight: 700, cursor: 'pointer' }}>Sign In</span>
@@ -403,6 +514,7 @@ export function AdminLoginPage({ navigate, setUser }) {
           )}
         </div>
 
+        {otpSent && !devOtp && <div style={{ background: '#EFF6FF', color: C.primary, borderRadius: 8, padding: '10px 12px', marginBottom: 12, fontSize: 13 }}>📧 OTP has been sent to your registered email</div>}
         {devOtp && <div style={{ background: '#EFF6FF', color: C.primary, borderRadius: 8, padding: '10px 12px', marginBottom: 12, fontSize: 12 }}>Development OTP: <b>{devOtp}</b></div>}
         <button onClick={async () => { 
           if (!otpVerified) { setErr('Please verify OTP first.'); return; }

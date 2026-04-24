@@ -24,7 +24,7 @@ export function PasswordRequirements({ password }) {
   );
 }
 
-export function FilePreviewList({ files, title = 'Selected Files' }) {
+export function FilePreviewList({ files, title = 'Selected Files', onRemoveFile }) {
   const [previews, setPreviews] = useState([]);
 
   useEffect(() => {
@@ -63,12 +63,24 @@ export function FilePreviewList({ files, title = 'Selected Files' }) {
       <div style={{ fontWeight: 700, fontSize: 13, color: C.text, marginBottom: 10 }}>{title}</div>
       <div style={{ display: 'grid', gap: 10 }}>
         {previews.map(item => (
-          <div key={item.key} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, background: C.bg }}>
+          <div key={item.key} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, background: C.bg, position: 'relative' }}>
+            {typeof onRemoveFile === 'function' && (
+              <button
+                onClick={() => onRemoveFile(item.key)}
+                style={{ position: 'absolute', top: 8, right: 8, border: 'none', background: '#fff', color: C.danger, borderRadius: '50%', width: 26, height: 26, cursor: 'pointer', fontWeight: 800, boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}
+              >
+                ×
+              </button>
+            )}
             {item.url && item.type.startsWith('image/') && (
-              <img src={item.url} alt={item.name} style={{ width: '100%', maxHeight: 180, objectFit: 'cover', borderRadius: 8, marginBottom: 8 }} />
+              <div style={{ background: '#fff', borderRadius: 8, padding: 8, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <img src={item.url} alt={item.name} style={{ width: '100%', maxHeight: 220, objectFit: 'contain', borderRadius: 8 }} />
+              </div>
             )}
             {item.url && item.type.startsWith('video/') && (
-              <video src={item.url} controls style={{ width: '100%', maxHeight: 220, borderRadius: 8, marginBottom: 8 }} />
+              <div style={{ background: '#fff', borderRadius: 8, padding: 8, marginBottom: 8 }}>
+                <video src={item.url} controls style={{ width: '100%', maxHeight: 240, objectFit: 'contain', borderRadius: 8 }} />
+              </div>
             )}
             <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{item.name}</div>
             <div style={{ fontSize: 12, color: C.textLight }}>{item.size}</div>
