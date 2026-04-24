@@ -73,13 +73,21 @@ function StatusBadge({ status }) {
 }
 
 function TableWrap({ headers, children }) {
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   return (
     <div style={{ background: '#fff', borderRadius: 12, border: `1px solid ${C.border}`, overflowX: 'auto', width: '100%' }}>
-      <table style={{ minWidth: 600, width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+      <table style={{ minWidth: isMobile ? 320 : 600, width: '100%', borderCollapse: 'collapse', fontSize: isMobile ? 11 : 13 }}>
         <thead>
           <tr style={{ background: C.bg }}>
             {headers.map(header => (
-              <th key={header} style={{ padding: '11px 14px', textAlign: 'left', fontWeight: 800, color: C.textLight, whiteSpace: 'nowrap' }}>
+              <th key={header} style={{ padding: isMobile ? '8px 10px' : '11px 14px', textAlign: 'left', fontWeight: 800, color: C.textLight, whiteSpace: 'nowrap', fontSize: isMobile ? 11 : 13 }}>
                 {header}
               </th>
             ))}
@@ -96,7 +104,15 @@ function TR({ children }) {
 }
 
 function TD({ children, style = {} }) {
-  return <td style={{ padding: '12px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap', ...style }}>{children}</td>;
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return <td style={{ padding: isMobile ? '10px 10px' : '12px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap', fontSize: isMobile ? 11 : 13, ...style }}>{children}</td>;
 }
 
 function MediaStrip({ images = [], ownerPhotoUrl, videoUrl }) {
@@ -166,6 +182,13 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
   const [actionLoading, setActionLoading] = useState(false);
   const [successToast, setSuccessToast] = useState(null);
   const [optimisticListings, setOptimisticListings] = useState([]);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const showToast = (msg) => {
     setSuccessToast(msg);
@@ -621,37 +644,37 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
         </Popup>
       )}
 
-      <nav style={{ background: '#001E5E', padding: '0 24px', position: 'sticky', top: 0, zIndex: 100 }}>
-        <div style={{ maxWidth: 1400, margin: '0 auto', height: 58, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div onClick={() => navigate('home')} style={{ cursor: 'pointer' }}><Logo white size={22} /></div>
-            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>| Admin Panel</span>
-            <span style={{ background: 'rgba(255,183,0,0.2)', color: '#FFB700', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 700 }}>
-              City: {stats?.cityName || '-'}
+      <nav style={{ background: '#001E5E', padding: isMobile ? '0 12px' : '0 24px', position: 'sticky', top: 0, zIndex: 100 }}>
+        <div style={{ maxWidth: 1400, margin: '0 auto', height: isMobile ? 54 : 58, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12 }}>
+            <div onClick={() => navigate('home')} style={{ cursor: 'pointer' }}><Logo white size={isMobile ? 18 : 22} /></div>
+            {!isMobile && <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>| Admin Panel</span>}
+            <span style={{ background: 'rgba(255,183,0,0.2)', color: '#FFB700', borderRadius: 6, padding: isMobile ? '2px 8px' : '3px 10px', fontSize: isMobile ? 10 : 12, fontWeight: 700 }}>
+              {isMobile ? stats?.cityName?.slice(0, 10) || '-' : `City: ${stats?.cityName || '-'}`}
             </span>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button onClick={() => navigate('home')} style={{ ...BTN.ghost, color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>Home</button>
-            <div style={{ background: 'rgba(255,183,0,0.2)', color: '#FFB700', borderRadius: 6, padding: '5px 12px', fontSize: 13, fontWeight: 700 }}>
-              Admin: {user?.name}
+          <div style={{ display: 'flex', gap: isMobile ? 4 : 8, alignItems: 'center' }}>
+            {!isMobile && <button onClick={() => navigate('home')} style={{ ...BTN.ghost, color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>Home</button>}
+            <div style={{ background: 'rgba(255,183,0,0.2)', color: '#FFB700', borderRadius: 6, padding: isMobile ? '4px 8px' : '5px 12px', fontSize: isMobile ? 11 : 13, fontWeight: 700 }}>
+              {isMobile ? user?.name?.split(' ')[0] : `Admin: ${user?.name}`}
             </div>
-            <button onClick={() => { setUser(null); navigate('home'); }} style={{ ...BTN.ghost, color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>
+            <button onClick={() => { setUser(null); navigate('home'); }} style={{ ...BTN.ghost, color: 'rgba(255,255,255,0.6)', fontSize: isMobile ? 11 : 12 }}>
               Logout
             </button>
           </div>
         </div>
       </nav>
 
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: 24 }}>
-        <div style={{ background: 'linear-gradient(135deg, #001E5E, #003B95)', borderRadius: 14, padding: '24px 28px', color: '#fff', marginBottom: 24 }}>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 900 }}>Admin Control Panel</h1>
-          <p style={{ margin: '6px 0 0', opacity: 0.8 }}>Managing platform for city: <b>{stats?.cityName || '-'}</b></p>
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: isMobile ? 16 : 24 }}>
+        <div style={{ background: 'linear-gradient(135deg, #001E5E, #003B95)', borderRadius: 14, padding: isMobile ? '20px 20px' : '24px 28px', color: '#fff', marginBottom: isMobile ? 16 : 24 }}>
+          <h1 style={{ margin: 0, fontSize: isMobile ? 20 : 24, fontWeight: 900 }}>Admin Control Panel</h1>
+          <p style={{ margin: '6px 0 0', opacity: 0.8, fontSize: isMobile ? 12 : 14 }}>Managing platform for city: <b>{stats?.cityName || '-'}</b></p>
         </div>
 
-        {pageError && <div style={{ background: '#FEF2F2', color: C.danger, borderRadius: 10, padding: '12px 14px', marginBottom: 18 }}>{pageError}</div>}
-        {actionError && !popup && <div style={{ background: '#FEF2F2', color: C.danger, borderRadius: 10, padding: '12px 14px', marginBottom: 18 }}>{actionError}</div>}
+        {pageError && <div style={{ background: '#FEF2F2', color: C.danger, borderRadius: 10, padding: '12px 14px', marginBottom: 18, fontSize: isMobile ? 12 : 14 }}>{pageError}</div>}
+        {actionError && !popup && <div style={{ background: '#FEF2F2', color: C.danger, borderRadius: 10, padding: '12px 14px', marginBottom: 18, fontSize: isMobile ? 12 : 14 }}>{actionError}</div>}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 14, marginBottom: 24 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(140px, 1fr))', gap: isMobile ? 10 : 14, marginBottom: isMobile ? 16 : 24 }}>
           {[
             ['Students', pageLoading ? '...' : String(stats?.totalStudents ?? 0), C.secondary],
             ['Owners', pageLoading ? '...' : String(stats?.totalOwners ?? 0), '#6B21A8'],
@@ -659,25 +682,25 @@ export default function AdminDashboardLive({ user, setUser, navigate }) {
             ['Pending Review', pageLoading ? '...' : String(stats?.pendingReviewListings ?? 0), '#D97706'],
             ['City', pageLoading ? '...' : (stats?.cityName || '-'), C.primary],
           ].map(([label, value, color]) => (
-            <div key={label} style={{ background: '#fff', borderRadius: 12, padding: '18px 20px', border: `1px solid ${C.border}` }}>
-              <div style={{ color: C.textLight, fontSize: 12, fontWeight: 700 }}>{label}</div>
-              <div style={{ fontSize: label === 'City' ? 18 : 26, fontWeight: 900, color, marginTop: 4 }}>{value}</div>
+            <div key={label} style={{ background: '#fff', borderRadius: 12, padding: isMobile ? '14px 16px' : '18px 20px', border: `1px solid ${C.border}` }}>
+              <div style={{ color: C.textLight, fontSize: isMobile ? 10 : 12, fontWeight: 700 }}>{label}</div>
+              <div style={{ fontSize: label === 'City' ? (isMobile ? 14 : 18) : (isMobile ? 20 : 26), fontWeight: 900, color, marginTop: 4 }}>{value}</div>
             </div>
           ))}
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', background: '#fff', borderRadius: 10, padding: 4, marginBottom: 20, width: 'fit-content', border: `1px solid ${C.border}`, gap: 2 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', background: '#fff', borderRadius: 10, padding: 4, marginBottom: 20, width: isMobile ? '100%' : 'fit-content', border: `1px solid ${C.border}`, gap: 2 }}>
           {[
-            ['students', 'Student Management'],
-            ['owners', 'Owner Management'],
-            ['contact', 'Contact Super Admin'],
-            ['replies', 'See Super Admin Replies'],
+            ['students', isMobile ? 'Students' : 'Student Management'],
+            ['owners', isMobile ? 'Owners' : 'Owner Management'],
+            ['contact', isMobile ? 'Contact' : 'Contact Super Admin'],
+            ['replies', isMobile ? 'Replies' : 'See Super Admin Replies'],
           ].map(([key, label]) => (
             <button
               key={key}
               onClick={() => setSection(key)}
               style={{
-                padding: '10px 20px',
+                padding: isMobile ? '8px 12px' : '10px 20px',
                 border: 'none',
                 borderRadius: 8,
                 cursor: 'pointer',

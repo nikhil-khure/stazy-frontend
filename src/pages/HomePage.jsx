@@ -11,6 +11,9 @@ const FEATURES = [
   { icon: '📢', title: 'Go Online for Owners', desc: 'Room owners near college campuses can list their properties and reach thousands of students instantly.' },
 ];
 
+// Mobile responsive helper
+const isMobile = () => window.innerWidth <= 768;
+
 export default function HomePage({ navigate, user }) {
   const [search, setSearch] = useState('');
   const [filterLoc, setFilterLoc] = useState('');
@@ -22,6 +25,7 @@ export default function HomePage({ navigate, user }) {
   const [studentTestimonials, setStudentTestimonials] = useState([]);
   const [cities, setCities] = useState([]);
   const [contactDetails, setContactDetails] = useState(null);
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const marqueeRef = useRef(null);
   const trackRef = useRef(null);
   const studentMarqueeRef = useRef(null);
@@ -32,6 +36,30 @@ export default function HomePage({ navigate, user }) {
   const [isStudentDragging, setIsStudentDragging] = useState(false);
   const [studentStartX, setStudentStartX] = useState(0);
   const [studentScrollLeft, setStudentScrollLeft] = useState(0);
+
+  // Responsive styles
+  const mobile = windowWidth <= 768;
+  const heroStyle = {
+    background: 'linear-gradient(160deg, #001E5E 0%, #003B95 50%, #0071C2 100%)',
+    minHeight: mobile ? 360 : 480,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+    padding: mobile ? '40px 16px' : '60px 24px'
+  };
+
+  const navStyle = {
+    background: C.primary,
+    padding: mobile ? '0 12px' : '0 24px',
+    position: 'sticky',
+    top: 0,
+    zIndex: 100
+  };
+
+  const sectionPadding = mobile ? '24px 16px' : '40px 24px';
+  const largeSectionPadding = mobile ? '32px 16px' : '50px 24px';
 
   const handleMouseDown = (e) => {
     if (!marqueeRef.current) return;
@@ -108,6 +136,12 @@ export default function HomePage({ navigate, user }) {
   }, []);
 
   useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
     let active = true;
     Promise.all([
       apiRequest('/api/listings', { query: { size: 6 } }),
@@ -164,25 +198,25 @@ export default function HomePage({ navigate, user }) {
   return (
     <div>
       {/* Navbar */}
-      <nav style={{ background: C.primary, padding: '0 24px', position: 'sticky', top: 0, zIndex: 100 }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <nav style={navStyle}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', height: mobile ? 56 : 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div onClick={() => navigate('home')}><Logo white /></div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {['Home', 'About Us'].map(l => (
+          <div style={{ display: 'flex', gap: mobile ? 4 : 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {!mobile && ['Home', 'About Us'].map(l => (
               <button key={l} onClick={() => navigate(l === 'Home' ? 'home' : 'about')}
                 style={{ ...BTN.ghost, color: 'rgba(255,255,255,0.85)', fontSize: 14 }}>{l}</button>
             ))}
             {user ? (
               <>
-                <button onClick={() => navigate('explore')} style={{ ...BTN.ghost, color: 'rgba(255,255,255,0.85)' }}>Explore Rooms</button>
+                {!mobile && <button onClick={() => navigate('explore')} style={{ ...BTN.ghost, color: 'rgba(255,255,255,0.85)' }}>Explore Rooms</button>}
                 <button onClick={() => navigate(user.role === 'student' ? 'studentDash' : user.role === 'owner' ? 'ownerDash' : 'adminDash')}
-                  style={{ ...BTN.accent, padding: '7px 14px' }}>👤 {user.name}</button>
+                  style={{ ...BTN.accent, padding: mobile ? '6px 10px' : '7px 14px', fontSize: mobile ? 13 : 14 }}>👤 {mobile ? user.name.split(' ')[0] : user.name}</button>
               </>
             ) : (
               <>
-                <button onClick={() => navigate('login')} style={{ ...BTN.outline, color: '#fff', borderColor: 'rgba(255,255,255,0.5)', padding: '7px 16px' }}>Login</button>
-                <button onClick={() => navigate('signup')} style={{ ...BTN.accent, padding: '7px 16px' }}>Sign Up</button>
-                <button onClick={() => navigate('adminLogin')} style={{ ...BTN.ghost, color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>Admin</button>
+                <button onClick={() => navigate('login')} style={{ ...BTN.outline, color: '#fff', borderColor: 'rgba(255,255,255,0.5)', padding: mobile ? '6px 12px' : '7px 16px', fontSize: mobile ? 13 : 14 }}>Login</button>
+                <button onClick={() => navigate('signup')} style={{ ...BTN.accent, padding: mobile ? '6px 12px' : '7px 16px', fontSize: mobile ? 13 : 14 }}>Sign Up</button>
+                {!mobile && <button onClick={() => navigate('adminLogin')} style={{ ...BTN.ghost, color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>Admin</button>}
               </>
             )}
           </div>
@@ -190,87 +224,87 @@ export default function HomePage({ navigate, user }) {
       </nav>
 
       {/* Hero */}
-      <div className="home-hero-animate" style={{ background: 'linear-gradient(160deg, #001E5E 0%, #003B95 50%, #0071C2 100%)', minHeight: 480, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden', padding: '60px 24px' }}>
-        {[200, 350, 500].map((sz, i) => (
+      <div className="home-hero-animate" style={heroStyle}>
+        {!mobile && [200, 350, 500].map((sz, i) => (
           <div key={i} style={{ position: 'absolute', width: sz, height: sz, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.07)', top: `${20 + i * 15}%`, right: `${5 + i * 8}%`, transform: `translateY(${heroOffset * (0.1 + i * 0.05)}px)`, transition: 'transform 0.1s linear' }} />
         ))}
-        <div style={{ textAlign: 'center', maxWidth: 700, position: 'relative', zIndex: 1 }}>
-          <div style={{ background: 'rgba(255,183,0,0.15)', display: 'inline-block', borderRadius: 20, padding: '6px 16px', marginBottom: 16 }}>
-            <span style={{ color: C.accent, fontWeight: 700, fontSize: 13 }}>🎓 India's #1 Student Room Finder</span>
+        <div style={{ textAlign: 'center', maxWidth: mobile ? '100%' : 700, position: 'relative', zIndex: 1 }}>
+          <div style={{ background: 'rgba(255,183,0,0.15)', display: 'inline-block', borderRadius: 20, padding: mobile ? '4px 12px' : '6px 16px', marginBottom: mobile ? 12 : 16 }}>
+            <span style={{ color: C.accent, fontWeight: 700, fontSize: mobile ? 11 : 13 }}>🎓 India's #1 Student Room Finder</span>
           </div>
-          <h1 style={{ color: '#fff', fontSize: 'clamp(28px, 5vw, 52px)', fontWeight: 900, margin: '0 0 16px', lineHeight: 1.15, fontFamily: "'Georgia', serif" }}>
+          <h1 style={{ color: '#fff', fontSize: 'clamp(24px, 6vw, 52px)', fontWeight: 900, margin: '0 0 16px', lineHeight: 1.15, fontFamily: "'Georgia', serif" }}>
             Find Your Perfect <span style={{ color: C.accent }}>Room</span> Near Campus
           </h1>
-          <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: 17, marginBottom: 32, lineHeight: 1.6 }}>
+          <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: mobile ? 14 : 17, marginBottom: mobile ? 24 : 32, lineHeight: 1.6 }}>
             AI-verified listings, secure bookings, and thousands of student-friendly PGs, hostels & rooms — all in one place.
           </p>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button onClick={() => navigate('explore')} style={{ ...BTN.accent, padding: '13px 32px', fontSize: 16, borderRadius: 10 }}>🔍 Explore Rooms</button>
-            <button onClick={() => navigate('signup')} style={{ ...BTN.outline, color: '#fff', borderColor: 'rgba(255,255,255,0.5)', padding: '13px 28px', fontSize: 16, borderRadius: 10 }}>Join Free →</button>
+          <div style={{ display: 'flex', gap: mobile ? 8 : 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button onClick={() => navigate('explore')} style={{ ...BTN.accent, padding: mobile ? '11px 24px' : '13px 32px', fontSize: mobile ? 14 : 16, borderRadius: 10 }}>🔍 Explore Rooms</button>
+            <button onClick={() => navigate('signup')} style={{ ...BTN.outline, color: '#fff', borderColor: 'rgba(255,255,255,0.5)', padding: mobile ? '11px 20px' : '13px 28px', fontSize: mobile ? 14 : 16, borderRadius: 10 }}>Join Free →</button>
           </div>
-          <div style={{ display: 'flex', gap: 24, justifyContent: 'center', marginTop: 28, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: mobile ? 12 : 24, justifyContent: 'center', marginTop: mobile ? 20 : 28, flexWrap: 'wrap' }}>
             {['2,400+ Listings', '15,000+ Students', '500+ Owners', 'AI Verified'].map(s => (
-              <div key={s} style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, fontWeight: 600 }}>✓ {s}</div>
+              <div key={s} style={{ color: 'rgba(255,255,255,0.75)', fontSize: mobile ? 11 : 13, fontWeight: 600 }}>✓ {s}</div>
             ))}
           </div>
         </div>
       </div>
 
       {/* Search & Filter */}
-      <div className="home-section-animate" style={{ background: C.card, padding: '28px 24px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
+      <div className="home-section-animate" style={{ background: C.card, padding: mobile ? '20px 16px' : '28px 24px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-          <h2 style={{ color: C.text, marginBottom: 16, fontSize: 22, fontWeight: 800 }}>🔎 Find Your Room</h2>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <h2 style={{ color: C.text, marginBottom: mobile ? 12 : 16, fontSize: mobile ? 18 : 22, fontWeight: 800 }}>🔎 Find Your Room</h2>
+          <div style={{ display: 'flex', gap: mobile ? 8 : 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, location, type..."
-              style={{ flex: '1 1 260px', padding: '11px 16px', border: `2px solid ${C.border}`, borderRadius: 8, fontSize: 14, outline: 'none', color: C.text }} />
+              style={{ flex: '1 1 200px', padding: mobile ? '10px 12px' : '11px 16px', border: `2px solid ${C.border}`, borderRadius: 8, fontSize: mobile ? 13 : 14, outline: 'none', color: C.text }} />
             <select value={filterLoc} onChange={e => setFilterLoc(e.target.value)}
-              style={{ padding: '11px 14px', border: `2px solid ${C.border}`, borderRadius: 8, fontSize: 14, color: C.text, minWidth: 160 }}>
+              style={{ padding: mobile ? '10px 12px' : '11px 14px', border: `2px solid ${C.border}`, borderRadius: 8, fontSize: mobile ? 13 : 14, color: C.text, minWidth: mobile ? 140 : 160 }}>
               <option value="">📍 All Locations</option>
               {cities.map(city => <option key={city.cityId} value={city.cityName}>{city.cityName}</option>)}
             </select>
             <select value={filterPrice} onChange={e => setFilterPrice(e.target.value)}
-              style={{ padding: '11px 14px', border: `2px solid ${C.border}`, borderRadius: 8, fontSize: 14, color: C.text, minWidth: 160 }}>
+              style={{ padding: mobile ? '10px 12px' : '11px 14px', border: `2px solid ${C.border}`, borderRadius: 8, fontSize: mobile ? 13 : 14, color: C.text, minWidth: mobile ? 140 : 160 }}>
               <option value="">💰 All Prices</option>
               <option value="low">Under ₹7,000</option>
               <option value="mid">₹7,000 - ₹9,000</option>
               <option value="high">Above ₹9,000</option>
             </select>
-            <button onClick={() => navigate('explore', { searchQuery: search })} style={{ ...BTN.primary, padding: '12px 24px' }}>Search</button>
+            <button onClick={() => navigate('explore', { searchQuery: search })} style={{ ...BTN.primary, padding: mobile ? '10px 20px' : '12px 24px', fontSize: mobile ? 13 : 14 }}>Search</button>
           </div>
         </div>
       </div>
 
       {/* Featured Rooms */}
-      <div className="home-section-animate" style={{ background: C.bg, padding: '40px 24px' }}>
+      <div className="home-section-animate" style={{ background: C.bg, padding: sectionPadding }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-            <h2 style={{ color: C.text, margin: 0, fontSize: 22, fontWeight: 800 }}>✨ Featured Rooms</h2>
-            <span style={{ color: C.textLight, fontSize: 13 }}>{filtered.length} results</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: mobile ? 16 : 24 }}>
+            <h2 style={{ color: C.text, margin: 0, fontSize: mobile ? 18 : 22, fontWeight: 800 }}>✨ Featured Rooms</h2>
+            <span style={{ color: C.textLight, fontSize: mobile ? 11 : 13 }}>{filtered.length} results</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20, marginBottom: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'repeat(auto-fill, minmax(280px, 1fr))', gap: mobile ? 16 : 20, marginBottom: mobile ? 16 : 24 }}>
             {filtered.map(r => <RoomCard key={r.id} room={r} onClick={() => navigate('explore')} />)}
           </div>
           <div style={{ textAlign: 'center' }}>
-            <button onClick={() => navigate('explore')} style={{ ...BTN.primary, padding: '13px 36px', fontSize: 16, borderRadius: 10 }}>Explore All Rooms →</button>
+            <button onClick={() => navigate('explore')} style={{ ...BTN.primary, padding: mobile ? '11px 28px' : '13px 36px', fontSize: mobile ? 14 : 16, borderRadius: 10 }}>Explore All Rooms →</button>
           </div>
         </div>
       </div>
 
       {/* Features */}
-      <div className="home-section-animate" style={{ background: C.card, padding: '50px 24px' }}>
+      <div className="home-section-animate" style={{ background: C.card, padding: largeSectionPadding }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: 36 }}>
-            <h2 style={{ color: C.text, fontSize: 28, fontWeight: 900, margin: 0 }}>Why Choose Stazy?</h2>
-            <p style={{ color: C.textLight, marginTop: 8 }}>Cutting-edge features built for student safety and convenience</p>
+          <div style={{ textAlign: 'center', marginBottom: mobile ? 24 : 36 }}>
+            <h2 style={{ color: C.text, fontSize: mobile ? 22 : 28, fontWeight: 900, margin: 0 }}>Why Choose Stazy?</h2>
+            <p style={{ color: C.textLight, marginTop: 8, fontSize: mobile ? 13 : 14 }}>Cutting-edge features built for student safety and convenience</p>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'repeat(auto-fill, minmax(220px, 1fr))', gap: mobile ? 16 : 24 }}>
             {FEATURES.map((f, i) => (
-              <div key={i} className="home-card-animate" style={{ background: C.bg, borderRadius: 14, padding: 24, textAlign: 'center', border: `1px solid ${C.border}`, transition: 'all 0.2s' }}
+              <div key={i} className="home-card-animate" style={{ background: C.bg, borderRadius: 14, padding: mobile ? 20 : 24, textAlign: 'center', border: `1px solid ${C.border}`, transition: 'all 0.2s' }}
                 onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 8px 30px rgba(0,59,149,0.15)'; e.currentTarget.style.borderColor = C.secondary; }}
                 onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = C.border; }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>{f.icon}</div>
-                <h3 style={{ color: C.primary, fontWeight: 800, fontSize: 16, margin: '0 0 8px' }}>{f.title}</h3>
-                <p style={{ color: C.textLight, fontSize: 13, lineHeight: 1.6, margin: 0 }}>{f.desc}</p>
+                <div style={{ fontSize: mobile ? 32 : 40, marginBottom: mobile ? 8 : 12 }}>{f.icon}</div>
+                <h3 style={{ color: C.primary, fontWeight: 800, fontSize: mobile ? 14 : 16, margin: '0 0 8px' }}>{f.title}</h3>
+                <p style={{ color: C.textLight, fontSize: mobile ? 12 : 13, lineHeight: 1.6, margin: 0 }}>{f.desc}</p>
               </div>
             ))}
           </div>
@@ -278,11 +312,11 @@ export default function HomePage({ navigate, user }) {
       </div>
 
       {/* Owner Testimonials */}
-      <div className="home-section-animate" style={{ background: `linear-gradient(135deg, ${C.primary} 0%, #001E5E 100%)`, padding: '50px 24px 30px' }}>
+      <div className="home-section-animate" style={{ background: `linear-gradient(135deg, ${C.primary} 0%, #001E5E 100%)`, padding: mobile ? '32px 16px 20px' : '50px 24px 30px' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: 36 }}>
-            <h2 style={{ color: '#fff', fontSize: 28, fontWeight: 900, margin: 0 }}>What Our Owners Say</h2>
-            <p style={{ color: 'rgba(255,255,255,0.7)', marginTop: 8, fontSize: 14 }}>Property owners share their experience</p>
+          <div style={{ textAlign: 'center', marginBottom: mobile ? 24 : 36 }}>
+            <h2 style={{ color: '#fff', fontSize: mobile ? 22 : 28, fontWeight: 900, margin: 0 }}>What Our Owners Say</h2>
+            <p style={{ color: 'rgba(255,255,255,0.7)', marginTop: 8, fontSize: mobile ? 12 : 14 }}>Property owners share their experience</p>
           </div>
           <div 
             ref={marqueeRef}
@@ -295,7 +329,7 @@ export default function HomePage({ navigate, user }) {
           >
             <div ref={trackRef} className="testimonial-marquee-track">
               {[...ownerTestimonials, ...ownerTestimonials, ...ownerTestimonials].map((t, i) => (
-                <div key={i} className="testimonial-card" style={{ background: '#fff', borderRadius: 14, padding: 20, border: '1px solid rgba(255,255,255,0.2)', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15), 0 4px 8px rgba(0, 30, 94, 0.1)', transition: isDragging ? 'none' : 'all 0.3s ease' }}>
+                <div key={i} className="testimonial-card" style={{ background: '#fff', borderRadius: 14, padding: mobile ? 16 : 20, border: '1px solid rgba(255,255,255,0.2)', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15), 0 4px 8px rgba(0, 30, 94, 0.1)', transition: isDragging ? 'none' : 'all 0.3s ease' }}>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
                     {t.profilePhotoUrl ? (
                       <img 
@@ -303,8 +337,8 @@ export default function HomePage({ navigate, user }) {
                         alt={t.name} 
                         draggable="false"
                         style={{ 
-                          width: 40, 
-                          height: 40, 
+                          width: mobile ? 36 : 40, 
+                          height: mobile ? 36 : 40, 
                           borderRadius: '50%', 
                           objectFit: 'cover', 
                           border: `2px solid ${C.border}` 
@@ -312,14 +346,14 @@ export default function HomePage({ navigate, user }) {
                       />
                     ) : (
                       <div style={{ 
-                        width: 40, 
-                        height: 40, 
+                        width: mobile ? 36 : 40, 
+                        height: mobile ? 36 : 40, 
                         borderRadius: '50%', 
                         background: C.primary + '20', 
                         display: 'flex', 
                         alignItems: 'center', 
                         justifyContent: 'center', 
-                        fontSize: 18, 
+                        fontSize: mobile ? 16 : 18, 
                         fontWeight: 700, 
                         color: C.primary, 
                         border: `2px solid ${C.border}` 
@@ -328,14 +362,14 @@ export default function HomePage({ navigate, user }) {
                       </div>
                     )}
                     <div>
-                      <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{t.name}</div>
-                      <div style={{ color: C.textLight, fontSize: 12 }}>{t.location || t.role || '-'} {t.userRole ? `(${t.userRole === 'OWNER' ? 'Owner' : t.userRole === 'STUDENT' ? 'Student' : t.userRole})` : ''}</div>
+                      <div style={{ fontWeight: 800, fontSize: mobile ? 13 : 15, color: C.text }}>{t.name}</div>
+                      <div style={{ color: C.textLight, fontSize: mobile ? 10 : 12 }}>{t.location || t.role || '-'} {t.userRole ? `(${t.userRole === 'OWNER' ? 'Owner' : t.userRole === 'STUDENT' ? 'Student' : t.userRole})` : ''}</div>
                     </div>
                   </div>
-                  <div style={{ color: '#FFB700', fontSize: 16, marginBottom: 8 }}>
+                  <div style={{ color: '#FFB700', fontSize: mobile ? 14 : 16, marginBottom: 8 }}>
                     {'★'.repeat(t.rating || 0)}{'☆'.repeat(5 - (t.rating || 0))}
                   </div>
-                  <div style={{ color: C.text, fontSize: 13, lineHeight: 1.6 }}>
+                  <div style={{ color: C.text, fontSize: mobile ? 12 : 13, lineHeight: 1.6 }}>
                     {t.text}
                   </div>
                 </div>
@@ -346,11 +380,11 @@ export default function HomePage({ navigate, user }) {
       </div>
 
       {/* Student Testimonials */}
-      <div className="home-section-animate" style={{ background: `linear-gradient(135deg, #001E5E 0%, ${C.primary} 100%)`, padding: '30px 24px 50px' }}>
+      <div className="home-section-animate" style={{ background: `linear-gradient(135deg, #001E5E 0%, ${C.primary} 100%)`, padding: mobile ? '20px 16px 32px' : '30px 24px 50px' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: 36 }}>
-            <h2 style={{ color: '#fff', fontSize: 28, fontWeight: 900, margin: 0 }}>What Our Students Say</h2>
-            <p style={{ color: 'rgba(255,255,255,0.7)', marginTop: 8, fontSize: 14 }}>Students share their room finding journey</p>
+          <div style={{ textAlign: 'center', marginBottom: mobile ? 24 : 36 }}>
+            <h2 style={{ color: '#fff', fontSize: mobile ? 22 : 28, fontWeight: 900, margin: 0 }}>What Our Students Say</h2>
+            <p style={{ color: 'rgba(255,255,255,0.7)', marginTop: 8, fontSize: mobile ? 12 : 14 }}>Students share their room finding journey</p>
           </div>
           <div 
             ref={studentMarqueeRef}
@@ -363,7 +397,7 @@ export default function HomePage({ navigate, user }) {
           >
             <div ref={studentTrackRef} className="testimonial-marquee-track testimonial-marquee-reverse">
               {[...studentTestimonials, ...studentTestimonials, ...studentTestimonials].map((t, i) => (
-                <div key={i} className="testimonial-card" style={{ background: '#fff', borderRadius: 14, padding: 20, border: '1px solid rgba(255,255,255,0.2)', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15), 0 4px 8px rgba(0, 30, 94, 0.1)', transition: isStudentDragging ? 'none' : 'all 0.3s ease' }}>
+                <div key={i} className="testimonial-card" style={{ background: '#fff', borderRadius: 14, padding: mobile ? 16 : 20, border: '1px solid rgba(255,255,255,0.2)', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15), 0 4px 8px rgba(0, 30, 94, 0.1)', transition: isStudentDragging ? 'none' : 'all 0.3s ease' }}>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
                     {t.profilePhotoUrl ? (
                       <img 
@@ -371,8 +405,8 @@ export default function HomePage({ navigate, user }) {
                         alt={t.name} 
                         draggable="false"
                         style={{ 
-                          width: 40, 
-                          height: 40, 
+                          width: mobile ? 36 : 40, 
+                          height: mobile ? 36 : 40, 
                           borderRadius: '50%', 
                           objectFit: 'cover', 
                           border: `2px solid ${C.border}` 
@@ -380,14 +414,14 @@ export default function HomePage({ navigate, user }) {
                       />
                     ) : (
                       <div style={{ 
-                        width: 40, 
-                        height: 40, 
+                        width: mobile ? 36 : 40, 
+                        height: mobile ? 36 : 40, 
                         borderRadius: '50%', 
                         background: C.secondary + '20', 
                         display: 'flex', 
                         alignItems: 'center', 
                         justifyContent: 'center', 
-                        fontSize: 18, 
+                        fontSize: mobile ? 16 : 18, 
                         fontWeight: 700, 
                         color: C.secondary, 
                         border: `2px solid ${C.border}` 
@@ -396,14 +430,14 @@ export default function HomePage({ navigate, user }) {
                       </div>
                     )}
                     <div>
-                      <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{t.name}</div>
-                      <div style={{ color: C.textLight, fontSize: 12 }}>{t.location || t.role || '-'} {t.userRole ? `(${t.userRole === 'OWNER' ? 'Owner' : t.userRole === 'STUDENT' ? 'Student' : t.userRole})` : ''}</div>
+                      <div style={{ fontWeight: 800, fontSize: mobile ? 13 : 15, color: C.text }}>{t.name}</div>
+                      <div style={{ color: C.textLight, fontSize: mobile ? 10 : 12 }}>{t.location || t.role || '-'} {t.userRole ? `(${t.userRole === 'OWNER' ? 'Owner' : t.userRole === 'STUDENT' ? 'Student' : t.userRole})` : ''}</div>
                     </div>
                   </div>
-                  <div style={{ color: '#FFB700', fontSize: 16, marginBottom: 8 }}>
+                  <div style={{ color: '#FFB700', fontSize: mobile ? 14 : 16, marginBottom: 8 }}>
                     {'★'.repeat(t.rating || 0)}{'☆'.repeat(5 - (t.rating || 0))}
                   </div>
-                  <div style={{ color: C.text, fontSize: 13, lineHeight: 1.6 }}>
+                  <div style={{ color: C.text, fontSize: mobile ? 12 : 13, lineHeight: 1.6 }}>
                     {t.text}
                   </div>
                 </div>
@@ -414,13 +448,13 @@ export default function HomePage({ navigate, user }) {
       </div>
 
       {/* CTA */}
-      <div className="home-section-animate" style={{ background: C.accent, padding: '40px 24px', textAlign: 'center' }}>
+      <div className="home-section-animate" style={{ background: C.accent, padding: sectionPadding, textAlign: 'center' }}>
         <div style={{ maxWidth: 700, margin: '0 auto' }}>
-          <h2 style={{ color: C.primary, fontSize: 28, fontWeight: 900, margin: '0 0 8px' }}>Ready to Find Your Perfect Stay?</h2>
-          <p style={{ color: '#5a4400', marginBottom: 24, fontSize: 15 }}>Join thousands of students who found their ideal accommodation through Stazy</p>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button onClick={() => navigate('signup')} style={{ ...BTN.primary, padding: '13px 32px', fontSize: 16 }}>🎓 Register as Student</button>
-            <button onClick={() => navigate('signup')} style={{ background: '#fff', color: C.primary, border: 'none', borderRadius: 8, padding: '13px 32px', fontSize: 16, fontWeight: 700, cursor: 'pointer' }}>🏠 List Your Room</button>
+          <h2 style={{ color: C.primary, fontSize: mobile ? 22 : 28, fontWeight: 900, margin: '0 0 8px' }}>Ready to Find Your Perfect Stay?</h2>
+          <p style={{ color: '#5a4400', marginBottom: mobile ? 20 : 24, fontSize: mobile ? 13 : 15 }}>Join thousands of students who found their ideal accommodation through Stazy</p>
+          <div style={{ display: 'flex', gap: mobile ? 8 : 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button onClick={() => navigate('signup')} style={{ ...BTN.primary, padding: mobile ? '11px 24px' : '13px 32px', fontSize: mobile ? 14 : 16 }}>🎓 Register as Student</button>
+            <button onClick={() => navigate('signup')} style={{ background: '#fff', color: C.primary, border: 'none', borderRadius: 8, padding: mobile ? '11px 24px' : '13px 32px', fontSize: mobile ? 14 : 16, fontWeight: 700, cursor: 'pointer' }}>🏠 List Your Room</button>
           </div>
         </div>
       </div>

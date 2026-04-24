@@ -167,3 +167,30 @@ input, textarea, select {
   transform: translateY(-4px);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2), 0 6px 12px rgba(0, 30, 94, 0.15) !important;
 }
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+  }
+
+  .testimonial-card {
+    flex: 0 0 280px;
+    min-width: 280px;
+  }
+
+  .testimonial-marquee-track {
+    gap: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .testimonial-card {
+    flex: 0 0 260px;
+    min-width: 260px;
+  }
+
+  .testimonial-marquee-track {
+    gap: 10px;
+  }
+}
