@@ -216,7 +216,7 @@ export default function HomePage({ navigate, user }) {
               <>
                 <button onClick={() => navigate('login')} style={{ ...BTN.outline, color: '#fff', borderColor: 'rgba(255,255,255,0.5)', padding: mobile ? '6px 12px' : '7px 16px', fontSize: mobile ? 13 : 14 }}>Login</button>
                 <button onClick={() => navigate('signup')} style={{ ...BTN.accent, padding: mobile ? '6px 12px' : '7px 16px', fontSize: mobile ? 13 : 14 }}>Sign Up</button>
-                {!mobile && <button onClick={() => navigate('adminLogin')} style={{ ...BTN.ghost, color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>Admin</button>}
+                <button onClick={() => navigate('adminLogin')} style={{ ...BTN.ghost, color: 'rgba(255,255,255,0.6)', fontSize: mobile ? 11 : 12 }}>Admin</button>
               </>
             )}
           </div>
@@ -297,7 +297,7 @@ export default function HomePage({ navigate, user }) {
             <h2 style={{ color: C.text, fontSize: mobile ? 22 : 28, fontWeight: 900, margin: 0 }}>Why Choose Stazy?</h2>
             <p style={{ color: C.textLight, marginTop: 8, fontSize: mobile ? 13 : 14 }}>Cutting-edge features built for student safety and convenience</p>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'repeat(auto-fill, minmax(220px, 1fr))', gap: mobile ? 16 : 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'repeat(4, 1fr)', gap: mobile ? 16 : 24, maxWidth: mobile ? '100%' : 1100, margin: '0 auto' }}>
             {FEATURES.map((f, i) => (
               <div key={i} className="home-card-animate" style={{ background: C.bg, borderRadius: 14, padding: mobile ? 20 : 24, textAlign: 'center', border: `1px solid ${C.border}`, transition: 'all 0.2s' }}
                 onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 8px 30px rgba(0,59,149,0.15)'; e.currentTarget.style.borderColor = C.secondary; }}
