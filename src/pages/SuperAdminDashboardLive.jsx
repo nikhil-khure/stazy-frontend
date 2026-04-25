@@ -106,6 +106,7 @@ export default function SuperAdminDashboardLive({ user, setUser, navigate }) {
   const [resumeLoadingId, setResumeLoadingId] = useState(null);
   const [dashboardError, setDashboardError] = useState('');
   const [actionError, setActionError] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [stats, setStats] = useState(null);
   const [feedbacksUnauth, setFeedbacksUnauth] = useState([]);
   const [feedbacksAuth, setFeedbacksAuth] = useState([]);
@@ -634,8 +635,68 @@ export default function SuperAdminDashboardLive({ user, setUser, navigate }) {
       )}
       <nav style={{ background: '#0A0A0A', padding: '0 24px', position: 'sticky', top: 0, zIndex: 100 }}><div style={{ height: 58, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><div style={{ display: 'flex', alignItems: 'center', gap: 14 }}><span style={{ color: '#fff', fontWeight: 900, fontSize: 18 }}>Super Admin</span><span style={{ background: 'rgba(255,183,0,0.2)', color: '#FFB700', borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>STAZY HQ</span></div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>ID: {user?.userCode}</span><button onClick={() => navigate('home')} style={{ background: 'rgba(255,255,255,0.1)', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>Home</button><button onClick={() => { setUser(null); navigate('home'); }} style={{ background: 'rgba(255,255,255,0.1)', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>Logout</button></div></div></nav>
       <div style={{ display: 'flex', flex: 1 }}>
-        <div style={{ width: 240, background: '#fff', borderRight: `1px solid ${C.border}` }}>
-          {['profile','stats','feedbackUnauth','feedbackAuth','hiring','admins','studentsList','ownersList','cityData','adminQueries'].map(key => <button key={key} onClick={() => setSection(key)} style={{ display: 'block', width: '100%', padding: '12px 16px', border: 'none', background: section === key ? '#0A0A0A' : 'transparent', color: section === key ? '#FFB700' : C.text, textAlign: 'left', fontWeight: section === key ? 800 : 500, cursor: 'pointer' }}>{H(key)}</button>)}
+        {/* Mobile Hamburger Button */}
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          style={{
+            display: 'none',
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            background: '#FFB700',
+            color: '#0A0A0A',
+            border: 'none',
+            borderRadius: '50%',
+            width: 56,
+            height: 56,
+            fontSize: 24,
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            zIndex: 999,
+            fontWeight: 900,
+          }}
+          className="mobile-menu-btn"
+        >
+          ☰
+        </button>
+
+        {/* Sidebar Overlay for Mobile */}
+        {sidebarOpen && (
+          <div
+            onClick={() => setSidebarOpen(false)}
+            style={{
+              display: 'none',
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0,0,0,0.5)',
+              zIndex: 1000,
+            }}
+            className="mobile-sidebar-overlay"
+          />
+        )}
+
+        <div style={{ width: 240, background: '#fff', borderRight: `1px solid ${C.border}` }} className={`admin-sidebar ${sidebarOpen ? 'open' : ''}`}>
+          <div style={{ display: 'none', padding: '12px 16px', borderBottom: `1px solid ${C.border}`, justifyContent: 'space-between', alignItems: 'center' }} className="mobile-sidebar-header">
+            <span style={{ fontWeight: 800, color: C.text }}>Menu</span>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: 24,
+                cursor: 'pointer',
+                color: C.textLight,
+                padding: 0,
+                lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+          </div>
+          {['profile','stats','feedbackUnauth','feedbackAuth','hiring','admins','studentsList','ownersList','cityData','adminQueries'].map(key => <button key={key} onClick={() => { setSection(key); setSidebarOpen(false); }} style={{ display: 'block', width: '100%', padding: '12px 16px', border: 'none', background: section === key ? '#0A0A0A' : 'transparent', color: section === key ? '#FFB700' : C.text, textAlign: 'left', fontWeight: section === key ? 800 : 500, cursor: 'pointer' }}>{H(key)}</button>)}
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
           {dashboardError && <div style={{ background: '#FEF2F2', color: C.danger, borderRadius: 10, padding: '12px 14px', marginBottom: 18 }}>{dashboardError}</div>}
@@ -760,6 +821,39 @@ export default function SuperAdminDashboardLive({ user, setUser, navigate }) {
           {section === 'adminQueries' && <Table headers={['Admin ID', 'Subject', 'Status', 'Message', 'Action']}>{queries.map(item => <tr key={item.id} style={{ borderTop: `1px solid ${C.border}` }}><Cell><b>{item.adminUserCode}</b></Cell><Cell>{item.subject || '-'}</Cell><Cell><Badge value={item.status} /></Cell><Cell style={{ whiteSpace: 'normal' }}>{item.message}</Cell><Cell><button onClick={() => { setPopup({ type: 'reply', data: item }); setActionError(''); }} style={{ background: `${C.primary}15`, color: C.primary, border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{item.replyMessage ? 'Update Reply' : 'Send Reply'}</button></Cell></tr>)}</Table>}
         </div>
       </div>
+      <style>{`
+        @media (max-width: 768px) {
+          .mobile-menu-btn {
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+          }
+          
+          .mobile-sidebar-overlay {
+            display: block !important;
+          }
+          
+          .admin-sidebar {
+            position: fixed !important;
+            top: 0 !important;
+            left: -280px;
+            bottom: 0;
+            width: 260px !important;
+            z-index: 1001;
+            transition: left 0.3s ease;
+            overflow-y: auto;
+            max-height: 100vh;
+          }
+          
+          .admin-sidebar.open {
+            left: 0 !important;
+          }
+          
+          .mobile-sidebar-header {
+            display: flex !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

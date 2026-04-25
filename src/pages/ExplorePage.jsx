@@ -280,6 +280,7 @@ export default function ExplorePage({ navigate, user, searchQuery = '' }) {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
   const [rooms, setRooms] = useState([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const PER_PAGE = 4;
 
   // Update search when searchQuery prop changes
@@ -354,9 +355,84 @@ export default function ExplorePage({ navigate, user, searchQuery = '' }) {
       </div>
 
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px', display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {/* Mobile Hamburger Button */}
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          style={{
+            display: 'none',
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            background: C.primary,
+            color: '#fff',
+            border: 'none',
+            borderRadius: '50%',
+            width: 56,
+            height: 56,
+            fontSize: 24,
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            zIndex: 999,
+            '@media (max-width: 768px)': {
+              display: 'flex',
+            },
+          }}
+          className="mobile-filter-btn"
+        >
+          🎛️
+        </button>
+
+        {/* Sidebar Overlay for Mobile */}
+        {sidebarOpen && (
+          <div
+            onClick={() => setSidebarOpen(false)}
+            style={{
+              display: 'none',
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0,0,0,0.5)',
+              zIndex: 1000,
+            }}
+            className="mobile-sidebar-overlay"
+          />
+        )}
+
         {/* Sidebar Filters */}
-        <div style={{ background: C.card, borderRadius: 12, padding: 20, width: 220, flexShrink: 0, border: `1px solid ${C.border}`, position: 'sticky', top: 76 }}>
-          <h3 style={{ margin: '0 0 16px', color: C.text, fontWeight: 800 }}>🎛️ Filters</h3>
+        <div
+          style={{
+            background: C.card,
+            borderRadius: 12,
+            padding: 20,
+            width: 220,
+            flexShrink: 0,
+            border: `1px solid ${C.border}`,
+            position: 'sticky',
+            top: 76,
+          }}
+          className={`filters-sidebar ${sidebarOpen ? 'open' : ''}`}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ margin: 0, color: C.text, fontWeight: 800 }}>🎛️ Filters</h3>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              style={{
+                display: 'none',
+                background: 'none',
+                border: 'none',
+                fontSize: 24,
+                cursor: 'pointer',
+                color: C.textLight,
+                padding: 0,
+                lineHeight: 1,
+              }}
+              className="mobile-close-btn"
+            >
+              ×
+            </button>
+          </div>
           <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
             placeholder="Search rooms..."
             style={{ width: '100%', padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, marginBottom: 12, boxSizing: 'border-box', outline: 'none' }} />
@@ -416,6 +492,39 @@ export default function ExplorePage({ navigate, user, searchQuery = '' }) {
         </div>
       </div>
       <Footer navigate={navigate} />
+      <style>{`
+        @media (max-width: 768px) {
+          .mobile-filter-btn {
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+          }
+          
+          .mobile-sidebar-overlay {
+            display: block !important;
+          }
+          
+          .filters-sidebar {
+            position: fixed !important;
+            top: 0 !important;
+            left: -280px;
+            bottom: 0;
+            width: 260px !important;
+            z-index: 1001;
+            transition: left 0.3s ease;
+            overflow-y: auto;
+            max-height: 100vh;
+          }
+          
+          .filters-sidebar.open {
+            left: 0 !important;
+          }
+          
+          .mobile-close-btn {
+            display: block !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

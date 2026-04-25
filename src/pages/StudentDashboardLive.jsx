@@ -149,21 +149,21 @@ function FTextarea({ label, placeholder, rows = 4, value, onChange }) {
 
 function SCard({ title, icon, children }) {
   return (
-    <div style={{ background: '#fff', borderRadius: 12, border: `1px solid ${C.border}`, marginBottom: 16 }}>
+    <div style={{ background: '#fff', borderRadius: 12, border: `1px solid ${C.border}`, marginBottom: 16, overflow: 'hidden' }}>
       <div style={{ padding: '14px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
         {icon && <span style={{ fontSize: 18 }}>{icon}</span>}
         <h4 style={{ margin: 0, fontWeight: 800, color: C.text, fontSize: 15 }}>{title}</h4>
       </div>
-      <div style={{ padding: '16px 20px' }}>{children}</div>
+      <div style={{ padding: '16px 20px', overflowX: 'auto', wordWrap: 'break-word' }}>{children}</div>
     </div>
   );
 }
 
 function InfoRow({ label, value }) {
   return (
-    <div style={{ display: 'flex', gap: 8, marginBottom: 8, fontSize: 14 }}>
-      <span style={{ color: C.textLight, minWidth: 180 }}>{label}</span>
-      <span style={{ fontWeight: 600, color: C.text }}>{value || '-'}</span>
+    <div style={{ display: 'flex', gap: 8, marginBottom: 8, fontSize: 14, flexWrap: 'wrap' }}>
+      <span style={{ color: C.textLight, minWidth: 180, wordBreak: 'break-word' }}>{label}</span>
+      <span style={{ fontWeight: 600, color: C.text, wordBreak: 'break-word', flex: 1 }}>{value || '-'}</span>
     </div>
   );
 }
@@ -1822,7 +1822,25 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
         <button onClick={signOut} style={{ ...BTN.ghost, color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>🚪 Sign Out</button>
       </footer>
 
-      <style>{'@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}'}</style>
+      <style>{`
+        @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+        
+        @media (max-width: 768px) {
+          /* Make InfoRow responsive */
+          .info-row {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+          }
+          
+          /* Ensure SCard content doesn't overflow */
+          .scard-content {
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+            word-break: break-word;
+            max-width: 100%;
+          }
+        }
+      `}</style>
     </div>
   );
 }

@@ -279,7 +279,7 @@ export function ComplaintTable({
             {!isOwner && (
               <>
                 <th style={{ padding: '12px 8px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: C.textLight }}>
-                  Student Evidence
+                  Reported User Evidence
                 </th>
                 <th style={{ padding: '12px 8px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: C.textLight }}>
                   Justification
