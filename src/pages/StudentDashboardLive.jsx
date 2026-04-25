@@ -154,16 +154,16 @@ function SCard({ title, icon, children }) {
         {icon && <span style={{ fontSize: 18 }}>{icon}</span>}
         <h4 style={{ margin: 0, fontWeight: 800, color: C.text, fontSize: 15 }}>{title}</h4>
       </div>
-      <div style={{ padding: '16px 20px', overflowX: 'auto', wordWrap: 'break-word' }}>{children}</div>
+      <div style={{ padding: '16px 20px' }} className="scard-content">{children}</div>
     </div>
   );
 }
 
 function InfoRow({ label, value }) {
   return (
-    <div style={{ display: 'flex', gap: 8, marginBottom: 8, fontSize: 14, flexWrap: 'wrap' }}>
-      <span style={{ color: C.textLight, minWidth: 180, wordBreak: 'break-word' }}>{label}</span>
-      <span style={{ fontWeight: 600, color: C.text, wordBreak: 'break-word', flex: 1 }}>{value || '-'}</span>
+    <div style={{ display: 'flex', gap: 8, marginBottom: 8, fontSize: 14 }} className="info-row">
+      <span style={{ color: C.textLight, minWidth: 180 }}>{label}</span>
+      <span style={{ fontWeight: 600, color: C.text }}>{value || '-'}</span>
     </div>
   );
 }
@@ -1826,18 +1826,15 @@ export default function StudentDashboardLive({ user, setUser, navigate }) {
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
         
         @media (max-width: 768px) {
-          /* Make InfoRow responsive */
-          .info-row {
-            flex-direction: column !important;
-            align-items: flex-start !important;
+          /* Add horizontal scroll to SCard content on mobile */
+          .scard-content {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
           }
           
-          /* Ensure SCard content doesn't overflow */
-          .scard-content {
-            overflow-wrap: break-word;
-            word-wrap: break-word;
-            word-break: break-word;
-            max-width: 100%;
+          /* Prevent InfoRow from wrapping on mobile */
+          .info-row {
+            white-space: nowrap;
           }
         }
       `}</style>

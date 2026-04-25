@@ -702,7 +702,7 @@ export default function SuperAdminDashboardLive({ user, setUser, navigate }) {
           {dashboardError && <div style={{ background: '#FEF2F2', color: C.danger, borderRadius: 10, padding: '12px 14px', marginBottom: 18 }}>{dashboardError}</div>}
           {actionError && !popup && <div style={{ background: '#FEF2F2', color: C.danger, borderRadius: 10, padding: '12px 14px', marginBottom: 18 }}>{actionError}</div>}
           {section === 'profile' && (
-            <div style={{ 
+            <div className="super-admin-profile-card" style={{ 
               background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', 
               borderRadius: 20, 
               padding: 40, 
@@ -851,6 +851,12 @@ export default function SuperAdminDashboardLive({ user, setUser, navigate }) {
           
           .mobile-sidebar-header {
             display: flex !important;
+          }
+          
+          /* Add horizontal scroll to Super Admin profile card on mobile */
+          .super-admin-profile-card {
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
           }
         }
       `}</style>
