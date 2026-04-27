@@ -28,7 +28,7 @@ export default function BlockedAccountBanner({ user }) {
             {blockReason}
           </div>
           <div style={{ fontSize: 13, opacity: 0.85, marginTop: 6 }}>
-            You can view your data but cannot perform any actions. Please contact support for assistance.
+            You can view your data but cannot perform any actions. Please contact support for assistance: <a href="mailto:support@stazy.com" style={{ color: '#fff', fontWeight: 700, textDecoration: 'underline', cursor: 'pointer' }}>support@stazy.com</a>
           </div>
         </div>
       </div>
